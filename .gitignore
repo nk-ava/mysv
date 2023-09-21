@@ -2,3 +2,5 @@
 img
 node_modules
 *.iml
+*.d.ts
+*.js
