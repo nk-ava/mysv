@@ -1,6 +1,6 @@
 {
   "name": "mysv",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "米游社大别野机器人js-sdk",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

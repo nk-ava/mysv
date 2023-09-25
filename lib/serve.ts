@@ -8,6 +8,7 @@ import Parser, {Events} from "./parser"
 import bodyParse from "body-parser";
 import {verifyPKCS1v15} from "./verify";
 import {AddQuickEmoticon, AuditCallback, CreateBot, DeleteBot, JoinVilla, SendMessage} from "./event";
+import {Color} from "./user";
 import {
 	AtAll,
 	AtRobot,
@@ -25,9 +26,6 @@ import {MessageRet} from "./event/baseEvent";
 import stream from "stream";
 import FormData from "form-data";
 import fs from "fs";
-
-/** 身份组可选颜色 */
-export type Color = "#6173AB" | "#F485D8" | "#F47884" | "#FFA54B" | "#7BC26F" | "#59A1EA" | "#977EE1"
 
 /** 身份组可添加权限 */
 export type Perm = "mention_all" |

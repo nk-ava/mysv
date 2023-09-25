@@ -1,3 +1,5 @@
+import e from "express";
+
 export interface MsgContentInfo {
 	/** 消息的提及信息 */
 	mentionedInfo?: MentionedInfo
@@ -88,4 +90,57 @@ export interface Link {
 	url: string
 	/** 字段为true时，跳转链接会带上含有用户信息的token */
 	requires_bot_access_token: boolean
+}
+
+/** @oicq (https://github.com/takayama-lily/oicq/blob/main/lib/message/elements.ts#L300C27-L300C27) */
+export function fromMCode(str: string): any[] {
+	const e = []
+	const res = str.matchAll(/\[M:[^\]]+\]/g)
+	let prev_index = 0
+	for (let v of res) {
+		const text = str.slice(prev_index, v.index).replace(/&#91;|&#93;|&amp;/g, unescapeM)
+		if (text) e.push({type: "text", text})
+		const element = v[0]
+		let ms = element.replace("[M:", "type=")
+		ms = ms.substr(0, ms.length - 1)
+		e.push(qs(ms))
+		prev_index = v.index as number + element.length
+	}
+	if (prev_index < str.length) {
+		const text = str.slice(prev_index).replace(/&#91;|&#93;|&amp;/g, unescapeM)
+		if (text) e.push({type: "text", text})
+	}
+	return e
+}
+
+function unescapeM(s: string) {
+	if (s === "&#91;") return "["
+	if (s === "&#93;") return "]"
+	if (s === "&amp;") return "&"
+	return ""
+}
+
+function unescapeMInside(s: string) {
+	if (s === "&#44;") return ","
+	if (s === "&#91;") return "["
+	if (s === "&#93;") return "]"
+	if (s === "&amp;") return "&"
+	return ""
+}
+
+function qs(s: string, sep = ",", equal = "=") {
+	const ret: any = {}
+	const split = s.split(sep)
+	for (let v of split) {
+		const i = v.indexOf(equal)
+		if (i === -1) continue
+		ret[v.substring(0, i)] = v.substr(i + 1).replace(/&#44;|&#91;|&#93;|&amp;/g, unescapeMInside)
+	}
+	for (let k in ret) {
+		try {
+			if (k !== "text") ret[k] = JSON.parse(ret[k])
+		} catch {
+		}
+	}
+	return ret
 }
