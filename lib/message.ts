@@ -25,7 +25,9 @@ export interface QuoteInfo {
 	original_message_send_time: number
 }
 
-export type MsgContent = Text | Image | Post
+export interface MsgContent extends Text, Image, Post {
+
+}
 
 /** 文本消息 */
 export interface Text {

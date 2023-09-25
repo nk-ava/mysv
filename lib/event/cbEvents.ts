@@ -30,6 +30,27 @@ export interface SendMessage extends BaseEvent {
 	msg_uid: string
 	/** 如果被回复的消息从属于机器人，则该字段不为空字符串 */
 	bot_msg_id: string
+	/** 回调消息引用消息的基础信息 */
+	quote_msg?: QuoteMsg
+}
+
+export interface QuoteMsg {
+	/** 消息摘要，如果是文本消息，则返回消息的文本内容。如果是图片消息，则返回"[图片]" */
+	content: string
+	/** 消息 id */
+	msg_uid: string
+	/** 如果消息从属于机器人，则该字段不为空字符串 */
+	bot_msg_id: string
+	/** 发送时间的时间戳 */
+	send_at: number
+	/** 消息类型，包括"文本"，"图片"，"帖子卡片"等 */
+	msg_type: string
+	/** 发送者 id（整型） */
+	from_user_id: number
+	/** 发送者昵称 */
+	from_user_nickname: string
+	/** 发送者 id（字符串）可携带机器人发送者的id */
+	from_user_id_str: string
 }
 
 /** 新增机器人事件 */

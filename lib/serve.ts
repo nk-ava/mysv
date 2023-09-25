@@ -1,11 +1,12 @@
 import * as log4js from "log4js";
 import crypto from "crypto";
 import axios from "axios";
-import {lock, md5Stream} from "./common"
+import {Encode, lock, md5Stream} from "./common"
 import express, {Application} from "express";
 import EventEmitter from "node:events";
 import Parser, {Events} from "./parser"
 import bodyParse from "body-parser";
+import {verifyPKCS1v15} from "./verify";
 import {AddQuickEmoticon, AuditCallback, CreateBot, DeleteBot, JoinVilla, SendMessage} from "./event";
 import {
 	AtAll,
@@ -108,6 +109,9 @@ export interface Config {
 
 	/** 配置的回调地址 */
 	callback_url: string
+
+	/** 是否开启签名验证，默认开启，若验证影响性能可关闭 */
+	is_verify?: boolean
 }
 
 export class Serve extends EventEmitter {
@@ -116,6 +120,7 @@ export class Serve extends EventEmitter {
 	private readonly application: Application
 	private readonly pubKey: crypto.KeyObject
 	private readonly enSecret: string
+	private readonly jwkKey: crypto.JsonWebKey
 
 	constructor(props: Config) {
 		super();
@@ -123,6 +128,7 @@ export class Serve extends EventEmitter {
 			level: 'info',
 			port: 8081,
 			host: 'localhost',
+			is_verify: true,
 			...props
 		}
 		this.mhyHost = "https://bbs-api.miyoushe.com"
@@ -130,6 +136,7 @@ export class Serve extends EventEmitter {
 		this.host = props.host || 'localhost'
 		this.port = props.port || 8081
 		this.pubKey = crypto.createPublicKey(props.pub_key)
+		this.jwkKey = this.pubKey.export({format: "jwk"})
 		this.enSecret = this.encryptSecret()
 		this.logger = log4js.getLogger(`[BOT_ID:${this.config.bot_id}]`)
 		this.logger.level = this.config.level as LogLevel
@@ -173,12 +180,13 @@ export class Serve extends EventEmitter {
 
 	/** 签名验证 */
 	verifySign(body: any, sign: string): boolean {
+		if (!this.config.is_verify) return true
 		if (!(body instanceof String)) {
 			body = JSON.stringify(body)
 		}
-		const str = `body=${encodeURI(body)}&secret=${this.config.secret}`
-		const d = crypto.createHash("sha256").update(str).digest("hex")
-		return true
+		const str = `body=${Encode(body.trim())}&secret=${Encode(this.config.secret)}`
+		const d = crypto.createHash("SHA256").update(str).digest()
+		return verifyPKCS1v15(this.jwkKey, d, Buffer.from(sign.trim(), "base64"))
 	}
 
 	/** 获取大别野信息 */
@@ -361,6 +369,7 @@ export class Serve extends EventEmitter {
 				original_message_send_time: quote.send_time
 			} as QuoteInfo
 		}
+		console.log(message, obj_name)
 		const path = "/vila/api/bot/platform/sendMessage"
 		const body = {
 			"room_id": room_id,
@@ -380,26 +389,15 @@ export class Serve extends EventEmitter {
 
 	private async _convert(msg: any): Promise<{ message: MsgContentInfo, obj_name: string | undefined }> {
 		let offset = 0
-		let obj_name
+		let obj_name = "MHY:Text"
 		if (!Array.isArray(msg)) msg = [msg]
 		const entities: Array<Entity> = new Array<Entity>()
 		let t = ""
+		let imgs: Array<Image> = new Array<Image>()
+		let post_id = []
 		let mention: MentionedInfo = {type: 0, userIdList: []}
 		for (let m of msg) {
 			if (typeof m === 'string') m = {type: 'text', text: m}
-			if (typeof obj_name === "undefined") {
-				if (["text", "at", "link", "linkRoom"].includes(m.type))
-					obj_name = "MHY:Text"
-				else if (["image"].includes(m.type))
-					obj_name = "MHY:Image"
-				else if (["post"].includes(m.type))
-					obj_name = "MHY:Post"
-				else throw new ServeRunTimeError(-2, "未知的消息类型")
-			}
-			if (obj_name !== "MHY:Text" && msg.length > 1) {
-				obj_name = undefined
-				continue
-			}
 			switch (m.type) {
 				case "text":
 					t += m.text
@@ -482,37 +480,41 @@ export class Serve extends EventEmitter {
 					offset += `#${m.room || '这个房间'} `.length
 					break
 				case "image":
-					if (msg.length > 1) break
+					if (!m.url || m.url === "") break
 					let img: Image = {
-						url: await this.uploadImage(m.url)
+						url: m.url
 					}
 					if (m.width && m.height) img.size = {width: m.width, height: m.height}
 					if (m.file_size) img.file_size = m.file_size
-					return {
-						message: {
-							content: img
-						} as MsgContentInfo, obj_name
-					}
+					imgs.push(img)
+					break
 				case "post":
-					if (msg.length > 1) break
+					if (!m.post_id || m.post_id === "") break
 					if (typeof m.post_id !== 'string') m.post_id = String(m.post_id)
-					return {
-						message: {
-							content: {
-								post_id: m.post_id
-							} as Post
-						} as MsgContentInfo, obj_name
-					}
+					post_id.push(m.post_id)
+					break
 			}
 		}
+		let imgUrl: Image | undefined
+		if (imgs.length) {
+			imgs[0].url = await this.uploadImage(imgs[0].url)
+			imgUrl = imgs[0]
+			obj_name = "MHY:Image"
+		} else imgUrl = undefined
+		const tmg = {
+			content: {
+				text: t,
+				entities: entities,
+				...imgUrl
+			}
+		} as MsgContentInfo
+		if (post_id.length) {
+			tmg.content.post_id = post_id[0]
+			obj_name = "MHY:Post"
+		}
+		if (mention.type !== 0) tmg.mentionedInfo = mention
 		return {
-			message: {
-				content: {
-					text: t,
-					entities: entities
-				},
-				mentionedInfo: mention.type === 0 ? {} : mention
-			} as MsgContentInfo, obj_name
+			message: tmg, obj_name
 		}
 	}
 
@@ -521,13 +523,12 @@ export class Serve extends EventEmitter {
 		const url = new URL(this.config.callback_url)
 		this.application.post(url.pathname, (req, res) => {
 			const event = req.body
-			/** 验证签名后面再补 */
-				// if (this.verifySign(event, req.header("x-rpc-bot_sign") || "")) {
-			const parser = new Parser(this, event.event)
-			const events: Array<Events> = parser.doParse();
-			for (let e of events) {
-				this.emit(parser.event_type, e)
-				// }
+			if (this.verifySign(event, req.header("x-rpc-bot_sign") || "")) {
+				const parser = new Parser(this, event.event)
+				const events: Array<Events> = parser.doParse();
+				for (let e of events) {
+					this.emit(parser.event_type, e)
+				}
 			}
 			res.status(200)
 			res.setHeader("Content-Type", "application/json")

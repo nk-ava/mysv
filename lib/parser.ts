@@ -54,6 +54,7 @@ export default class Parser {
 						nickname: v.nickname,
 						msg_uid: v.msg_uid,
 						bot_msg_id: v.bot_msg_id,
+						quote_msg: v.quote_msg,
 						reply: (content: any, quote: boolean = false): Promise<MessageRet> => {
 							const q: Quotable = {
 								message_id: v.msg_uid,
