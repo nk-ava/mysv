@@ -369,7 +369,6 @@ export class Serve extends EventEmitter {
 				original_message_send_time: quote.send_time
 			} as QuoteInfo
 		}
-		console.log(message, obj_name)
 		const path = "/vila/api/bot/platform/sendMessage"
 		const body = {
 			"room_id": room_id,

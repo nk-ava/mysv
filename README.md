@@ -3,6 +3,7 @@
 
 * 基于[大别野开发文档](https://webstatic.mihoyo.com/vila/bot/doc/changelog/) 实现的js-sdk
 * 支持大部分接口调用
+* 若报错format: jwk可能是node版本太低，已知node14不支持，node16支持
 ---
 
 **Install:**
