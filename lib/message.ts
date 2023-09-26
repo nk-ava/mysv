@@ -1,5 +1,3 @@
-import e from "express";
-
 export interface MsgContentInfo {
 	/** 消息的提及信息 */
 	mentionedInfo?: MentionedInfo
@@ -27,18 +25,18 @@ export interface QuoteInfo {
 	original_message_send_time: number
 }
 
-export interface MsgContent extends Text, Image, Post {
+export interface MsgContent extends TextMsg, ImageMsg, PostMsg {
 
 }
 
 /** 文本消息 */
-export interface Text {
+export interface TextMsg {
 	text: string
 	entities?: Array<Entity>
 }
 
 /** 图片消息 */
-export interface Image {
+export interface ImageMsg {
 	url: string
 	size?: {
 		width: number
@@ -48,14 +46,14 @@ export interface Image {
 }
 
 /** 分享米游社帖子 */
-export interface Post {
+export interface PostMsg {
 	/** 米游社帖子链接 https://www.miyoushe.com/ys/article/39872279 最后一个/后的字符串 39872279即帖子 id */
 	post_id: string
 }
 
 export interface Entity {
 	/** 具体的实体信息 */
-	entity: AtRobot | AtUser | AtAll | LinkRoom | Link
+	entity: AtRobot | AtUser | AtAll | LinkRoomMsg | LinkMsg
 	/** 表示UTF-16编码下对应实体在 text 中的起始位置 */
 	offset?: number
 	/** 表示UTF-16编码下对应实体的长度 */
@@ -79,13 +77,13 @@ export interface AtAll {
 }
 
 /** 房间标签，点击会跳转到指定房间（仅支持跳转本大别野的房间） */
-export interface LinkRoom {
+export interface LinkRoomMsg {
 	type: "villa_room_link"
 	villa_id: string
 	room_id: string
 }
 
-export interface Link {
+export interface LinkMsg {
 	type: "link"
 	url: string
 	/** 字段为true时，跳转链接会带上含有用户信息的token */

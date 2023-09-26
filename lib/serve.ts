@@ -9,23 +9,12 @@ import bodyParse from "body-parser";
 import {verifyPKCS1v15} from "./verify";
 import {AddQuickEmoticon, AuditCallback, CreateBot, DeleteBot, JoinVilla, SendMessage} from "./event";
 import {Color} from "./user";
-import {
-	AtAll,
-	AtRobot,
-	AtUser,
-	Entity,
-	Image,
-	Link,
-	LinkRoom,
-	MentionedInfo,
-	MsgContentInfo,
-	Post,
-	QuoteInfo
-} from "./message";
+import {MsgContentInfo, QuoteInfo} from "./message";
 import {MessageRet} from "./event/baseEvent";
 import stream from "stream";
 import FormData from "form-data";
 import fs from "fs";
+import {Msg} from "./element";
 
 /** 身份组可添加权限 */
 export type Perm = "mention_all" |
@@ -367,6 +356,7 @@ export class Serve extends EventEmitter {
 				original_message_send_time: quote.send_time
 			} as QuoteInfo
 		}
+		this.logger.debug("message:", message, "obj_name:", obj_name)
 		const path = "/vila/api/bot/platform/sendMessage"
 		const body = {
 			"room_id": room_id,
@@ -385,134 +375,8 @@ export class Serve extends EventEmitter {
 	}
 
 	private async _convert(msg: any): Promise<{ message: MsgContentInfo, obj_name: string | undefined }> {
-		let offset = 0
-		let obj_name = "MHY:Text"
 		if (!Array.isArray(msg)) msg = [msg]
-		const entities: Array<Entity> = new Array<Entity>()
-		let t = ""
-		let imgs: Array<Image> = new Array<Image>()
-		let post_id = []
-		let mention: MentionedInfo = {type: 0, userIdList: []}
-		for (let m of msg) {
-			if (typeof m === 'string') m = {type: 'text', text: m}
-			switch (m.type) {
-				case "text":
-					t += m.text
-					offset += m.text.length
-					break
-				case "at":
-					switch (m.scope) {
-						case "user":
-							t += `@${m.nickname || '你猜我at的谁'} `
-							if (typeof m.uid !== 'string') m.uid = String(m.uid)
-							entities.push({
-								entity: {
-									type: "mentioned_user",
-									user_id: m.uid
-								} as AtUser,
-								offset: offset,
-								length: (m.nickname || '你猜我at的谁').length + 2
-							} as Entity)
-							offset += (m.nickname || '你猜我at的谁').length + 2
-							if (!mention.type) {
-								mention.type = 2
-								mention.userIdList.push(m.uid)
-							}
-							break
-						case "all":
-							t += `@全体成员 `
-							entities.push({
-								entity: {
-									type: 'mentioned_all'
-								} as AtAll,
-								offset: offset,
-								length: 6
-							} as Entity)
-							offset += 6
-							mention.type = 1
-							break
-						case "bot":
-							t += `@${m.nickname || '你猜我at的谁'}`
-							if (typeof m.bid !== 'string') m.bid = String(m.bid)
-							entities.push({
-								entity: {
-									type: "mentioned_robot",
-									bot_id: m.bid
-								} as AtRobot,
-								offset: offset,
-								length: (m.nickname || '你猜我at的谁').length + 2
-							} as Entity)
-							offset += (m.nickname || '你猜我at的谁').length + 2
-							if (!mention.type) {
-								mention.type = 2
-								mention.userIdList.push(m.uid)
-							}
-							break
-					}
-					break
-				case "link":
-					t += m.url
-					entities.push({
-						entity: {
-							type: "link",
-							url: m.url,
-							requires_bot_access_token: m.ac_tk || false
-						} as Link,
-						offset: offset,
-						length: m.url.length
-					} as Entity)
-					offset += m.url.length
-					break
-				case "linkRoom":
-					t += `#${m.room_name || '这个房间'} `
-					entities.push({
-						entity: {
-							type: 'villa_room_link',
-							villa_id: `${m.vid}`,
-							room_id: `${m.rid}`
-						} as LinkRoom,
-						offset: offset,
-						length: `#${m.room || '这个房间'} `.length
-					})
-					offset += `#${m.room || '这个房间'} `.length
-					break
-				case "image":
-					if (!m.url || m.url === "") break
-					let img: Image = {
-						url: m.url
-					}
-					if (m.width && m.height) img.size = {width: m.width, height: m.height}
-					if (m.file_size) img.file_size = m.file_size
-					imgs.push(img)
-					break
-				case "post":
-					if (!m.post_id || m.post_id === "") break
-					if (typeof m.post_id !== 'string') m.post_id = String(m.post_id)
-					post_id.push(m.post_id)
-					break
-			}
-		}
-		let imgUrl: Image | undefined
-		if (imgs.length) {
-			imgs[0].url = await this.uploadImage(imgs[0].url)
-			imgUrl = imgs[0]
-			obj_name = "MHY:Image"
-		} else imgUrl = undefined
-		const tmg = {
-			content: {
-				text: t,
-				entities: entities,
-				...imgUrl
-			}
-		} as MsgContentInfo
-		if (post_id.length) {
-			tmg.content.post_id = post_id[0]
-			obj_name = "MHY:Post"
-		}
-		if (mention.type !== 0) tmg.mentionedInfo = mention
-		return {
-			message: tmg, obj_name
-		}
+		return await new Msg(this).parse(msg).gen();
 	}
 
 	private watchPath() {
