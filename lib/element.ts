@@ -1,9 +1,21 @@
-import {AtAll, AtRobot, AtUser, Entity, ImageMsg, LinkMsg, LinkRoomMsg, MentionedInfo, MsgContentInfo} from "./message";
+import {
+	AtAll,
+	AtRobot,
+	AtUser,
+	Entity,
+	FontStyle,
+	ImageMsg,
+	LinkMsg,
+	LinkRoomMsg,
+	MentionedInfo, MsgContent,
+	MsgContentInfo
+} from "./message";
 import {Serve} from "./serve";
 
 export interface Text {
 	type: 'text'
 	text: string
+	style?: string
 }
 
 export interface At {
@@ -85,15 +97,18 @@ export class Msg {
 		if (this.imgs.length) {
 			this.imgs[0].url = await this.c.uploadImage(this.imgs[0].url)
 			imgUrl = this.imgs[0]
-			this.obj_name = "MHY:Image"
+			if (this.t.length === 0) this.obj_name = "MHY:Image"
 		} else imgUrl = undefined
 		const tmg = {
 			content: {
 				text: this.t,
-				entities: this.entities,
-				...imgUrl
+				entities: this.entities
 			}
 		} as MsgContentInfo
+		if (imgUrl){
+			if(this.t.length) tmg.content.images = [imgUrl]
+			else tmg.content = <MsgContent>imgUrl
+		}
 		if (this.post_id.length) {
 			tmg.content.post_id = this.post_id[0]
 			this.obj_name = "MHY:Post"
@@ -106,6 +121,48 @@ export class Msg {
 
 	private text(obj: Text) {
 		this.t += obj.text
+		if (obj.style) {
+			if (obj.style.includes("b")) {
+				this.entities.push({
+					entity: {
+						type: "style",
+						font_style: "bold"
+					} as FontStyle,
+					offset: this.offset,
+					length: obj.text.length
+				})
+			}
+			if (obj.style.includes("i")) {
+				this.entities.push({
+					entity: {
+						type: "style",
+						font_style: "italic"
+					} as FontStyle,
+					offset: this.offset,
+					length: obj.text.length
+				})
+			}
+			if (obj.style.includes("s")) {
+				this.entities.push({
+					entity: {
+						type: "style",
+						font_style: "strikethrough"
+					} as FontStyle,
+					offset: this.offset,
+					length: obj.text.length
+				})
+			}
+			if (obj.style.includes("u")) {
+				this.entities.push({
+					entity: {
+						type: "style",
+						font_style: "underline"
+					} as FontStyle,
+					offset: this.offset,
+					length: obj.text.length
+				})
+			}
+		}
 		this.offset += this.text.length
 	}
 
@@ -164,8 +221,8 @@ export class Msg {
 		let img: ImageMsg = {
 			url: m.file
 		}
-		if (m.width && m.height) img.size = {width: m.width, height: m.height}
-		if (m.size) img.file_size = m.size
+		if (m.width && m.height) img.size = {width: Number(m.width), height: Number(m.height)}
+		if (typeof m.size !== 'undefined') img.file_size = Number(m.size)
 		this.imgs.push(img)
 	}
 

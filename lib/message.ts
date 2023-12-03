@@ -25,7 +25,7 @@ export interface QuoteInfo {
 	original_message_send_time: number
 }
 
-export interface MsgContent extends TextMsg, ImageMsg, PostMsg {
+export interface MsgContent extends TextMsg, ImageMsg, PostMsg, TextImageMsg {
 
 }
 
@@ -45,6 +45,11 @@ export interface ImageMsg {
 	file_size?: number
 }
 
+/** 图文消息 **/
+export interface TextImageMsg extends TextMsg {
+	images: ImageMsg[]
+}
+
 /** 分享米游社帖子 */
 export interface PostMsg {
 	/** 米游社帖子链接 https://www.miyoushe.com/ys/article/39872279 最后一个/后的字符串 39872279即帖子 id */
@@ -53,7 +58,7 @@ export interface PostMsg {
 
 export interface Entity {
 	/** 具体的实体信息 */
-	entity: AtRobot | AtUser | AtAll | LinkRoomMsg | LinkMsg
+	entity: AtRobot | AtUser | AtAll | LinkRoomMsg | LinkMsg | FontStyle
 	/** 表示UTF-16编码下对应实体在 text 中的起始位置 */
 	offset?: number
 	/** 表示UTF-16编码下对应实体的长度 */
@@ -64,6 +69,11 @@ export interface AtRobot {
 	type: "mentioned_robot"
 	/** at的机器人id */
 	bot_id: string
+}
+
+export interface FontStyle {
+	type: "style"
+	font_style: "bold" | "italic" | "strikethrough" | "underline"
 }
 
 export interface AtUser {

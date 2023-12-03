@@ -4,3 +4,5 @@ node_modules
 *.iml
 *.d.ts
 *.js
+module
+code.js

@@ -1,6 +1,7 @@
 import {JoinVilla, SendMessage, CreateBot, DeleteBot, AddQuickEmoticon, AuditCallback, BaseEvent} from "./event";
 import {MessageRet} from "./event/baseEvent";
 import {Quotable, Serve} from "./serve";
+import {Villa, VillaInfo} from "./villa";
 
 export type Events = JoinVilla | SendMessage | CreateBot | DeleteBot | AddQuickEmoticon | AuditCallback
 const et: string[] = ['', 'joinVilla', 'sendMessage', 'createRobot', 'deleteRobot', 'addQuickEmoticon', 'auditCallback']
@@ -26,10 +27,11 @@ export default class Parser {
 		this.event_data = event.extend_data.EventData
 	}
 
-	doParse(): Array<Events> {
+	async doParse(): Promise<Array<Events>> {
 		const es: [string, any][] = Object.entries(this.event_data)
 		const rs = new Array<Events>()
 		for (let [k, v] of es) {
+			let info = await Villa.getInfo(this.c, this.baseEvent.source.villa_id) as VillaInfo
 			switch (k) {
 				case "JoinVilla":
 					rs.push({
@@ -38,7 +40,7 @@ export default class Parser {
 						join_nickname: v.join_user_nickname,
 						join_time: v.join_at
 					} as JoinVilla)
-					this.c.logger.mark(`用户 ${v.join_nickname}(${v.join_uid})加入大别野(${this.baseEvent.source.villa_id})`)
+					this.c.logger.mark(`用户 ${v.join_nickname}(${v.join_uid})加入大别野[${info.name||"unknown"}](${this.baseEvent.source.villa_id})`)
 					break
 				case "SendMessage":
 					const content = JSON.parse(v.content)
@@ -63,19 +65,19 @@ export default class Parser {
 							return this.c.sendMsg(v.room_id, this.baseEvent.source.villa_id, content, quote ? q : undefined)
 						}
 					} as SendMessage)
-					this.c.logger.mark(`别野[${this.baseEvent.source.villa_id}] recv from ${v.nickname}: ${msg}`)
+					this.c.logger.mark(`别野[${info.name||"unknown"}](${this.baseEvent.source.villa_id}) recv from ${v.nickname}: ${msg}`)
 					break
 				case "CreateRobot":
 					rs.push({
 						...this.baseEvent
 					})
-					this.c.logger.mark(`机器人 ${this.baseEvent.source.bot.name}(${this.baseEvent.source.bot.id})加入大别野(${this.baseEvent.source.villa_id})`)
+					this.c.logger.mark(`机器人 ${this.baseEvent.source.bot.name}(${this.baseEvent.source.bot.id})加入大别野[${info.name||"unknown"}](${this.baseEvent.source.villa_id})`)
 					break
 				case "DeleteRobot":
 					rs.push({
 						...this.baseEvent
 					})
-					this.c.logger.mark(`机器人 ${this.baseEvent.source.bot.name}(${this.baseEvent.source.bot.id})被移出大别野(${this.baseEvent.source.villa_id})`)
+					this.c.logger.mark(`机器人 ${this.baseEvent.source.bot.name}(${this.baseEvent.source.bot.id})被移出大别野[${info.name||"unknown"}](${this.baseEvent.source.villa_id})`)
 					break
 				case "AddQuickEmoticon":
 					rs.push({
@@ -95,7 +97,7 @@ export default class Parser {
 							return this.c.sendMsg(v.room_id, this.baseEvent.source.villa_id, content, quote ? q : undefined)
 						}
 					} as AddQuickEmoticon)
-					this.c.logger.mark(`别野[${this.baseEvent.source.villa_id}] recv from unknown(${v.uid}): [表态表情]${v.emoticon}`)
+					this.c.logger.mark(`别野[${info.name||"unknown"}](${this.baseEvent.source.villa_id}) recv from unknown(${v.uid}): [表态表情]${v.emoticon}`)
 					break
 				case "AuditCallback":
 					rs.push({

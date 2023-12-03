@@ -15,6 +15,7 @@ import stream from "stream";
 import FormData from "form-data";
 import fs from "fs";
 import {Msg} from "./element";
+import {Villa} from "./villa";
 
 /** 身份组可添加权限 */
 export type Perm = "mention_all" |
@@ -176,28 +177,29 @@ export class Serve extends EventEmitter {
 		return verifyPKCS1v15(this.jwkKey, d, Buffer.from(sign.trim(), "base64"))
 	}
 
-	/** 获取大别野信息 */
-	async getVillaInfo(villa_id: number) {
-		const path = "/vila/api/bot/platform/getVilla"
-		return await this.fetchResult(villa_id, path, 'get', "")
+	/** 选择一个别野 */
+	pickVilla(vid: number) {
+		return Villa.get(this, vid)
 	}
 
-	/** 获取用户信息 */
+	/** 获取大别野信息 */
+	async getVillaInfo(villa_id: number) {
+		return this.pickVilla(villa_id)?.getVillaInfo();
+	}
+
+	/** 获取别野用户信息 */
 	async getUserInfo(villa_id: number, uid: number) {
-		const path = "/vila/api/bot/platform/getMember"
-		return await this.fetchResult(villa_id, path, 'get', `?uid=${uid}`)
+		return this.pickVilla(villa_id)?.getMemberInfo(uid)
 	}
 
 	/** 获取大别野成员列表 */
 	async getVillaUsers(villa_id: number, size: number, offset_str: string = "") {
-		const path = "/vila/api/bot/platform/getVillaMembers"
-		return await this.fetchResult(villa_id, path, 'get', `?offset_str=${offset_str}&size=${size}`)
+		return this.pickVilla(villa_id)?.getVillaUsers(size, offset_str)
 	}
 
 	/** 提出大别野用户 */
 	async kickUser(villa_id: number, uid: number) {
-		const path = "/vila/api/bot/platform/deleteVillaMember"
-		return await this.fetchResult(villa_id, path, "post", "", {uid: uid})
+		return this.pickVilla(villa_id)?.kickUser(uid)
 	}
 
 	/** 置顶消息 */
@@ -338,7 +340,7 @@ export class Serve extends EventEmitter {
 		return data.data
 	}
 
-	/** 图片转存，只能转存又网络地址的图片，上传图片请配置mys_ck调用上传接口 */
+	/** 图片转存，只能转存有网络地址的图片，上传图片请配置mys_ck调用上传接口 */
 	async transferImage(villa_id: number, url: string) {
 		return this.fetchResult(villa_id, "/vila/api/bot/platform/transferImage", "post", "", {
 			url: url
@@ -382,11 +384,11 @@ export class Serve extends EventEmitter {
 	private watchPath() {
 		if (!this.config.callback_url) throw new ServeRunTimeError(-6, "未配置回调地址")
 		const url = new URL(this.config.callback_url)
-		this.application.post(url.pathname, (req, res) => {
+		this.application.post(url.pathname, async (req, res) => {
 			const event = req.body
 			if (this.verifySign(event, req.header("x-rpc-bot_sign") || "")) {
 				const parser = new Parser(this, event.event)
-				const events: Array<Events> = parser.doParse();
+				const events: Array<Events> = await parser.doParse();
 				for (let e of events) {
 					this.emit(parser.event_type, e)
 				}
@@ -398,7 +400,7 @@ export class Serve extends EventEmitter {
 		})
 	}
 
-	private async fetchResult(villa_id: number, path: string, method: string, query: string, body: any = undefined) {
+	async fetchResult(villa_id: number, path: string, method: string, query: string, body: any = undefined) {
 		const {data} = await axios(
 			`${this.mhyHost}${path}${query}`
 			, {
