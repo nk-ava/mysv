@@ -7,14 +7,22 @@ import EventEmitter from "node:events";
 import Parser, {Events} from "./parser"
 import bodyParse from "body-parser";
 import {verifyPKCS1v15} from "./verify";
-import {AddQuickEmoticon, AuditCallback, CreateBot, DeleteBot, JoinVilla, SendMessage} from "./event";
+import {
+	AddQuickEmoticon,
+	AuditCallback,
+	ClickMsgComponent,
+	CreateBot,
+	DeleteBot,
+	JoinVilla,
+	SendMessage
+} from "./event";
 import {C, Color} from "./user";
-import {MsgContentInfo, QuoteInfo} from "./message";
+import {Component, MsgContentInfo, Panel, QuoteInfo} from "./message";
 import {MessageRet} from "./event/baseEvent";
 import stream from "stream";
 import FormData from "form-data";
 import fs from "fs";
-import {Msg} from "./element";
+import {Button, Elem, Msg} from "./element";
 import {Perm, Villa, VillaInfo} from "./villa";
 
 const pkg = require("../package.json")
@@ -58,6 +66,9 @@ export interface Serve {
 
 	/** 机器人发送的消息表情快捷回复 */
 	on(name: 'addQuickEmoticon', listener: (this: this, e: AddQuickEmoticon) => void): this
+
+	/** 点击消息组件事件 */
+	on(name: 'clickMsgComponent', listener: (this: this, e: ClickMsgComponent) => void): this
 }
 
 export type LogLevel = 'all' | 'mark' | 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'off'
@@ -84,8 +95,8 @@ export interface Config {
 	 */
 	mys_ck?: string
 
-	/** 配置的回调地址 */
-	callback_url: string
+	/** 配置的回调地址路径，不用写域名 */
+	callback_path: string
 
 	/** 是否开启签名验证，默认开启，若验证影响性能可关闭 */
 	is_verify?: boolean
@@ -334,9 +345,21 @@ export class Serve extends EventEmitter {
 		})
 	}
 
+	/** 创建消息组件模板，创建成功后会返回 template_id，发送消息时，可以使用 template_id 填充 component_board */
+	async createComponentTemplate(villa_id: number, components: Elem[]) {
+		if (Array.isArray(components)) {
+			const {panel} = await (await new Msg(this, villa_id).parse(components)).gen()
+			//@ts-ignore
+			components = JSON.stringify(panel)
+		}
+		return await this.fetchResult(villa_id, "/vila/api/bot/platform/createComponentTemplate", "post", "", {
+			panel: components
+		})
+	}
+
 	/** 发送消息 */
-	async sendMsg(room_id: number, villa_id: number, content: any, quote?: Quotable): Promise<MessageRet> {
-		const {message, obj_name} = await this._convert(content, villa_id)
+	async sendMsg(room_id: number, villa_id: number, content: Elem | Elem[], quote?: Quotable): Promise<MessageRet> {
+		const {message, obj_name, panel, brief} = await this._convert(content, villa_id)
 		if (quote) {
 			message.quote = {
 				quoted_message_id: quote.message_id,
@@ -345,6 +368,7 @@ export class Serve extends EventEmitter {
 				original_message_send_time: quote.send_time
 			} as QuoteInfo
 		}
+		message.panel = panel
 		this.logger.debug("message:", message, "obj_name:", obj_name)
 		const path = "/vila/api/bot/platform/sendMessage"
 		const body = {
@@ -362,18 +386,22 @@ export class Serve extends EventEmitter {
 		})
 		const r = data.data
 		if (!r) throw new ServeRunTimeError(-8, `消息发送失败：${data.message}`)
+		const villa = await Villa.getInfo(this, villa_id)
+		this.logger.info(`succeed to send: [Villa: ${villa?.name || "unknown"}](${villa_id})] ${brief}`)
 		return r
 	}
 
-	private async _convert(msg: any, villa_id: number): Promise<{ message: MsgContentInfo, obj_name: string | undefined }> {
+	private async _convert(msg: Elem | Elem[], villa_id: number): Promise<{ message: MsgContentInfo, obj_name: string | undefined, panel: Panel, brief: string }> {
 		if (!Array.isArray(msg)) msg = [msg]
 		return (await new Msg(this, villa_id).parse(msg)).gen();
 	}
 
 	private watchPath() {
-		if (!this.config.callback_url) throw new ServeRunTimeError(-6, "未配置回调地址")
-		const url = new URL(this.config.callback_url)
-		this.application.post(url.pathname, async (req, res) => {
+		if (!this.config.callback_path) throw new ServeRunTimeError(-6, "未配置回调地址路径")
+		let pathname = this.config.callback_path
+		if (!pathname.startsWith("/")) pathname = "/" + pathname
+		this.logger.debug(`开始监听回调路径：${pathname}`)
+		this.application.post(pathname, async (req, res) => {
 			const event = req.body
 			if (this.verifySign(event, req.header("x-rpc-bot_sign") || "")) {
 				const parser = new Parser(this, event.event)

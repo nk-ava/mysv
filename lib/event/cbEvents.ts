@@ -27,7 +27,7 @@ export interface SendMessage extends BaseEvent {
 	/** 用户昵称 */
 	nickname: string
 	/** 消息 id */
-	msg_uid: string
+	msg_id: string
 	/** 如果被回复的消息从属于机器人，则该字段不为空字符串 */
 	bot_msg_id: string
 	/** 回调消息引用消息的基础信息 */
@@ -95,19 +95,20 @@ export interface AuditCallback extends BaseEvent {
 	audit_result: number
 }
 
+/** 组件点击事件 */
 export interface ClickMsgComponent extends BaseEvent {
 	/** 房间 id */
 	room_id: number
 	/** 用户 id */
 	uid: number
 	/** 消息 id */
-	msg_uid: string
+	msg_id: string
 	/** 如果消息从属于机器人，则该字段不为空字符串 */
 	bot_msg_id: string
 	/** 机器人自定义的组件id */
 	component_id: string
 	/** 如果该组件模板为已创建模板，则template_id不为0 */
-	template_id: string
+	template_id: number
 	/** 机器人自定义透传信息 */
 	extra: string
 }

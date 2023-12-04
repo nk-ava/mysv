@@ -1,14 +1,14 @@
 import {
 	AtAll,
 	AtRobot,
-	AtUser,
+	AtUser, Component,
 	Entity,
 	FontStyle,
 	ImageMsg,
 	LinkMsg,
 	LinkRoomMsg,
 	MentionedInfo, MsgContent,
-	MsgContentInfo
+	MsgContentInfo, Panel
 } from "./message";
 import {Serve} from "./serve";
 import {Villa} from "./villa";
@@ -24,6 +24,28 @@ export interface At {
 	scope: 'user' | 'bot' | 'all',
 	id: string
 	nickname?: string
+}
+
+export interface Template {
+	type: 'template',
+	id: number
+}
+
+export interface Button {
+	id: string
+	type: 'button'
+	size?: 'small' | 'middle' | 'big'
+	text: string
+	cb?: boolean
+	extra?: string
+	c_type?: 'input' | 'link' | 'cb'
+	input?: string
+	link?: string
+	token?: boolean
+}
+
+export enum CType {
+	cb = 1, input, link
 }
 
 export interface Image {
@@ -53,27 +75,35 @@ export interface LinkRoom {
 	rid: string
 }
 
-export type Elem = Text | At | Image | Post | Link | LinkRoom
+export type Elem = Text | At | Image | Post | Link | LinkRoom | Button | Template | string
 
 export class Msg {
 	private readonly entities: Array<Entity>
 	private readonly imgs: Array<ImageMsg>
 	private readonly post_id: Array<string>
 	private readonly mention: MentionedInfo
+	private readonly panel: Panel
 	private readonly villa_id: number
 	private t: string
 	private origin: Array<any> | undefined
 	private offset: number
 	private obj_name: string
 	private c: Serve
+	private smallComponent: Component[]
+	private midComponent: Component[]
 
 	constructor(c: Serve, villa_id: number)
-	constructor(c: Serve, villa_id: number, o: [])
+	constructor(c: Serve, villa_id: number, o: Elem[])
 
-	constructor(c: Serve, villa_id: number, o?: []) {
+	constructor(c: Serve, villa_id: number, o?: Elem[]) {
 		if (o) this.origin = o
 		this.c = c
 		this.entities = new Array<Entity>()
+		this.panel = {
+			small_component_group_list: [],
+			mid_component_group_list: [],
+			big_component_group_list: []
+		}
 		this.t = ""
 		this.imgs = new Array<ImageMsg>()
 		this.post_id = Array<string>()
@@ -81,9 +111,11 @@ export class Msg {
 		this.offset = 0
 		this.obj_name = 'MHY:Text'
 		this.villa_id = villa_id
+		this.smallComponent = []
+		this.midComponent = []
 	}
 
-	async parse(o: []): Promise<Msg> {
+	async parse(o: Elem[]): Promise<Msg> {
 		if (o) this.origin = o
 		for (let m of this.origin || []) {
 			if (typeof m === 'string') m = {type: 'text', text: m}
@@ -117,8 +149,10 @@ export class Msg {
 			this.obj_name = "MHY:Post"
 		}
 		if (this.mention.type !== 0) tmg.mentionedInfo = this.mention
+		if (this.smallComponent.length) this.panel.small_component_group_list?.push(this.smallComponent)
+		if (this.midComponent.length) this.panel.mid_component_group_list?.push(this.midComponent)
 		return {
-			message: tmg, obj_name: this.obj_name
+			message: tmg, obj_name: this.obj_name, panel: this.panel, brief: this.t
 		}
 	}
 
@@ -166,7 +200,7 @@ export class Msg {
 				})
 			}
 		}
-		this.offset += this.text.length
+		this.offset += obj.text.length
 	}
 
 	private async at(m: At) {
@@ -263,5 +297,62 @@ export class Msg {
 		if (typeof m.id !== 'string') m.id = String(m.id)
 		if (!m.id || m.id === "") return
 		this.post_id.push(m.id)
+	}
+
+	private button(m: Button) {
+		if (!m.size) m.size = "small"
+		switch (m.size) {
+			case "small":
+				this.smallComponent.push({
+					id: m.id,
+					text: m.text,
+					type: 1,
+					need_callback: m.cb || true,
+					extra: m.extra,
+					c_type: CType[m.c_type || "cb"],
+					input: m.input,
+					need_token: m.token,
+					link: m.link
+				} as Component)
+				if (this.smallComponent.length == 3) {
+					this.panel.small_component_group_list?.push(this.smallComponent)
+					this.smallComponent = []
+				}
+				break
+			case "middle":
+				this.midComponent.push({
+					id: m.id,
+					text: m.text,
+					type: 1,
+					need_callback: m.cb || true,
+					extra: m.extra,
+					c_type: CType[m.c_type || "cb"],
+					input: m.input,
+					need_token: m.token,
+					link: m.link
+				} as Component)
+				if (this.midComponent.length == 2) {
+					this.panel.mid_component_group_list?.push(this.midComponent)
+					this.midComponent = []
+				}
+				break
+			case "big":
+				this.panel.big_component_group_list?.push([{
+					id: m.id,
+					text: m.text,
+					type: 1,
+					need_callback: m.cb || true,
+					extra: m.extra,
+					c_type: CType[m.c_type || "cb"],
+					input: m.input,
+					need_token: m.token,
+					link: m.link
+				} as Component])
+				break
+		}
+	}
+
+	private template(m: Template) {
+		this.panel.template_id = m.id
 	}
 }

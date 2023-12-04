@@ -1,5 +1,7 @@
 import {Serve, ServeRunTimeError} from "./serve";
 import {Color, MemberInfo, C, MemberRole} from "./user";
+import {Component} from "./message";
+import {Button} from "./element";
 
 const VillaMap = new WeakMap<VillaInfo, Villa>()
 
@@ -220,6 +222,11 @@ export class Villa {
 			is_add: is_add
 		})
 		return true
+	}
+
+	/** 创建消息组件模板，创建成功后会返回 template_id，发送消息时，可以使用 template_id 填充 component_board */
+	async createComponentTemplate(components: []) {
+		return this.c.createComponentTemplate(this.vid, components)
 	}
 }
 

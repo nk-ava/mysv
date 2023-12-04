@@ -5,6 +5,8 @@ export interface MsgContentInfo {
 	quote?: QuoteInfo
 	/** 消息内容 */
 	content: MsgContent
+	/** 组件 */
+	panel?: Panel
 }
 
 export interface MentionedInfo {
@@ -98,6 +100,45 @@ export interface LinkMsg {
 	url: string
 	/** 字段为true时，跳转链接会带上含有用户信息的token */
 	requires_bot_access_token: boolean
+}
+
+export interface BaseComponent {
+	/** 组件id，由机器人自定义，不能为空字符串。面板内的id需要唯一 */
+	id: string
+	/** 组件展示文本, 不能为空 */
+	text: string
+	/** 组件类型，目前支持 type=1 按钮组件，未来会扩展更多组件类型 */
+	type: number
+	/** 是否订阅该组件的回调事件 */
+	need_callback: boolean
+	/** 组件回调透传信息，由机器人自定义 */
+	extra?: string
+}
+
+export interface ButtonComponent extends BaseComponent {
+	/** 组件交互类型，包括：1回传型，2输入型，3跳转型 */
+	c_type: number
+	/** 如果交互类型为输入型，则需要在该字段填充输入内容，不能为空 */
+	input?: string
+	/** 如果交互类型为跳转型，需要在该字段填充跳转链接，不能为空 */
+	link?: string
+	/** 对于跳转链接来说，如果希望携带用户信息token，则need_token设置为true */
+	need_token?: boolean
+}
+
+export type Component = ButtonComponent
+
+export type Component_group = Component[]
+
+export interface Panel {
+	/** 模板id，通过创建消息组件模板接口，可以提前将组件面板保存，使用 template_id来快捷发送消息 */
+	template_id?: number
+	/** 定义小型组件，即一行摆置3个组件，每个组件最多展示2个中文字符或4个英文字符 */
+	small_component_group_list?: Component_group[]
+	/** 定义中型组件，即一行摆置2个组件，每个组件最多展示4个中文字符或8个英文字符 */
+	mid_component_group_list?: Component_group[]
+	/** 定义大型组件，即一行摆置1个组件，每个组件最多展示10个中文字符或20个英文字符 */
+	big_component_group_list?: Component_group[]
 }
 
 /** @oicq (https://github.com/takayama-lily/oicq/blob/main/lib/message/elements.ts#L300C27-L300C27) */
