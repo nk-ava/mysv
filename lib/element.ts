@@ -121,7 +121,8 @@ export class Msg {
 			if (typeof m === 'string') m = {type: 'text', text: m}
 			try {// @ts-ignore
 				await this[m.type](m)
-			} catch {
+			} catch (e) {
+				throw e
 			}
 		}
 		return this

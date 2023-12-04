@@ -431,7 +431,7 @@ export class Serve extends EventEmitter {
 				}
 			})
 		const r = data.data
-		if (!r) throw new ServeRunTimeError(-7, `接口调用出错：${data.message}`)
+		if (!r) throw new ServeRunTimeError(-7, `${path}返回错误：${data.message}`)
 		return r
 	}
 

@@ -64,7 +64,7 @@ export interface Entity {
 	/** 表示UTF-16编码下对应实体在 text 中的起始位置 */
 	offset?: number
 	/** 表示UTF-16编码下对应实体的长度 */
-	length?: number
+	length: number
 }
 
 export interface AtRobot {

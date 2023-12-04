@@ -1,4 +1,5 @@
 import {BaseEvent, MessageRet} from "./baseEvent";
+import {Elem} from "../element";
 
 /** 用户加入事件 */
 export interface JoinVilla extends BaseEvent {
@@ -10,10 +11,26 @@ export interface JoinVilla extends BaseEvent {
 	join_time: number
 }
 
+/** 回调函数中的用户信息 */
+export interface User {
+	/** 用户id */
+	id: string
+	/** 用户头像 */
+	portraitUri: string
+	alias: string
+	extra: string
+	/** 用户头像 */
+	portrait: string
+	/** 用户昵称 */
+	name: string
+}
+
 /** 用户发送信息事件 */
 export interface SendMessage extends BaseEvent {
 	/** 消息内容 */
-	content: any
+	message: Elem[]
+	/** 发送者信息 */
+	user: User
 	/** 文本消息 */
 	msg: string
 	/** 发送者 id */

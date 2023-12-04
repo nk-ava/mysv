@@ -11,7 +11,9 @@ import {
 import {MessageRet} from "./event/baseEvent";
 import {Quotable, Serve} from "./serve";
 import {Villa, VillaInfo} from "./villa";
-import {Elem} from "./element";
+import {At, Elem, Text} from "./element";
+import {Entity} from "./message";
+import {User} from "./event/cbEvents";
 
 export type Events = JoinVilla | SendMessage | CreateBot | DeleteBot | AddQuickEmoticon | AuditCallback
 const et: string[] = ['', 'joinVilla', 'sendMessage', 'createRobot', 'deleteRobot', 'addQuickEmoticon', 'auditCallback', "clickMsgComponent"]
@@ -57,7 +59,8 @@ export default class Parser {
 					const msg = content.content.text.replace(`@${this.baseEvent.source.bot.name} `, "")
 					rs.push({
 						...this.baseEvent,
-						content: content,
+						message: this.parseContent(content.content),
+						user: content.user as User,
 						msg: msg,
 						from_uid: v.from_user_id,
 						send_time: v.send_at,
@@ -145,6 +148,51 @@ export default class Parser {
 			}
 
 		}
+		return rs
+	}
+
+	/** 米游社用户暂时只能对机器人发送MHY:Text类型消息，所以暂时只解析MYH：Text类型消息 */
+	private parseContent(content: any): Elem[] {
+		const rs: Elem[] = []
+		const text = content.text
+		const entities = content.entities as Array<Entity>
+		let now = 0
+		entities.sort((x, y) => (x?.offset || 0) - (y?.offset || 0))
+		for (let entity of entities) {
+			if (now !== (entity.offset || 0)) {
+				rs.push({
+					type: 'text',
+					text: text.substring(now, entity.offset)
+				} as Text)
+				now = entity.offset || 0
+			}
+			let e = entity.entity
+			if (e.type === "mentioned_robot" && e.bot_id !== this.c.config.bot_id) {
+				rs.push({
+					type: 'at',
+					id: e.bot_id,
+					scope: 'bot',
+					nickname: text.substr((entity?.offset || 0) + 1, entity.length - 2)
+				} as At)
+			} else if (e.type === "mentioned_user") {
+				rs.push({
+					type: 'at',
+					id: e.user_id,
+					scope: 'user',
+					nickname: text.substr((entity?.offset || 0) + 1, entity.length - 2)
+				} as At)
+			} else if (e.type === "mentioned_all") {
+				rs.push({
+					type: 'at',
+					scope: 'all'
+				} as At)
+			}
+			now += entity.length
+		}
+		if (now !== text.length) rs.push({
+			type: 'text',
+			text: text.substr(now)
+		})
 		return rs
 	}
 }
