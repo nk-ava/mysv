@@ -21,7 +21,7 @@ export interface Text {
 
 export interface At {
 	type: 'at'
-	scope: 'user' | 'bot' | 'all',
+	scope?: 'user' | 'bot' | 'all',
 	id: string
 	nickname?: string
 }
@@ -204,6 +204,7 @@ export class Msg {
 	}
 
 	private async at(m: At) {
+		if (!m.scope) m.scope = 'user'
 		switch (m.scope) {
 			case "user":
 				if (typeof m.id !== 'string') m.id = String(m.id)
