@@ -40,7 +40,7 @@ export default class Parser {
 						join_nickname: v.join_user_nickname,
 						join_time: v.join_at
 					} as JoinVilla)
-					this.c.logger.mark(`用户 ${v.join_nickname}(${v.join_uid})加入大别野[${info.name||"unknown"}](${this.baseEvent.source.villa_id})`)
+					this.c.logger.mark(`用户 ${v.join_nickname}(${v.join_uid})加入大别野[${info.name || "unknown"}](${this.baseEvent.source.villa_id})`)
 					break
 				case "SendMessage":
 					const content = JSON.parse(v.content)
@@ -65,19 +65,19 @@ export default class Parser {
 							return this.c.sendMsg(v.room_id, this.baseEvent.source.villa_id, content, quote ? q : undefined)
 						}
 					} as SendMessage)
-					this.c.logger.mark(`别野[${info.name||"unknown"}](${this.baseEvent.source.villa_id}) recv from ${v.nickname}: ${msg}`)
+					this.c.logger.mark(`别野[${info.name || "unknown"}](${this.baseEvent.source.villa_id}) recv from ${v.nickname}: ${msg}`)
 					break
 				case "CreateRobot":
 					rs.push({
 						...this.baseEvent
 					})
-					this.c.logger.mark(`机器人 ${this.baseEvent.source.bot.name}(${this.baseEvent.source.bot.id})加入大别野[${info.name||"unknown"}](${this.baseEvent.source.villa_id})`)
+					this.c.logger.mark(`机器人 ${this.baseEvent.source.bot.name}(${this.baseEvent.source.bot.id})加入大别野[${info.name || "unknown"}](${this.baseEvent.source.villa_id})`)
 					break
 				case "DeleteRobot":
 					rs.push({
 						...this.baseEvent
 					})
-					this.c.logger.mark(`机器人 ${this.baseEvent.source.bot.name}(${this.baseEvent.source.bot.id})被移出大别野[${info.name||"unknown"}](${this.baseEvent.source.villa_id})`)
+					this.c.logger.mark(`机器人 ${this.baseEvent.source.bot.name}(${this.baseEvent.source.bot.id})被移出大别野[${info.name || "unknown"}](${this.baseEvent.source.villa_id})`)
 					break
 				case "AddQuickEmoticon":
 					rs.push({
@@ -97,7 +97,8 @@ export default class Parser {
 							return this.c.sendMsg(v.room_id, this.baseEvent.source.villa_id, content, quote ? q : undefined)
 						}
 					} as AddQuickEmoticon)
-					this.c.logger.mark(`别野[${info.name||"unknown"}](${this.baseEvent.source.villa_id}) recv from unknown(${v.uid}): [表态表情]${v.emoticon}`)
+					const member = await (await Villa.get(this.c, this.baseEvent.source.villa_id))?.getMemberInfo(v.uid)
+					this.c.logger.mark(`别野[${info.name || "unknown"}](${this.baseEvent.source.villa_id}) recv from ${member?.basic?.nickname || "unknown"}(${v.uid}): [表态表情]${v.emoticon}`)
 					break
 				case "AuditCallback":
 					rs.push({

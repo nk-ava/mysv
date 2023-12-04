@@ -11,6 +11,7 @@ import {
 	MsgContentInfo
 } from "./message";
 import {Serve} from "./serve";
+import {Villa} from "./villa";
 
 export interface Text {
 	type: 'text'
@@ -59,16 +60,17 @@ export class Msg {
 	private readonly imgs: Array<ImageMsg>
 	private readonly post_id: Array<string>
 	private readonly mention: MentionedInfo
+	private readonly villa_id: number
 	private t: string
 	private origin: Array<any> | undefined
 	private offset: number
 	private obj_name: string
 	private c: Serve
 
-	constructor(c: Serve)
-	constructor(c: Serve, o: [])
+	constructor(c: Serve, villa_id: number)
+	constructor(c: Serve, villa_id: number, o: [])
 
-	constructor(c: Serve, o?: []) {
+	constructor(c: Serve, villa_id: number, o?: []) {
 		if (o) this.origin = o
 		this.c = c
 		this.entities = new Array<Entity>()
@@ -78,14 +80,15 @@ export class Msg {
 		this.mention = {type: 0, userIdList: []}
 		this.offset = 0
 		this.obj_name = 'MHY:Text'
+		this.villa_id = villa_id
 	}
 
-	parse(o: []): Msg {
+	async parse(o: []): Promise<Msg> {
 		if (o) this.origin = o
 		for (let m of this.origin || []) {
 			if (typeof m === 'string') m = {type: 'text', text: m}
 			try {// @ts-ignore
-				this[m.type](m)
+				await this[m.type](m)
 			} catch {
 			}
 		}
@@ -95,7 +98,7 @@ export class Msg {
 	async gen() {
 		let imgUrl: ImageMsg | undefined
 		if (this.imgs.length) {
-			this.imgs[0].url = await this.c.uploadImage(this.imgs[0].url)
+			this.imgs[0].url = await this.c.uploadImage(this.imgs[0].url, this.villa_id)
 			imgUrl = this.imgs[0]
 			if (this.t.length === 0) this.obj_name = "MHY:Image"
 		} else imgUrl = undefined
@@ -105,8 +108,8 @@ export class Msg {
 				entities: this.entities
 			}
 		} as MsgContentInfo
-		if (imgUrl){
-			if(this.t.length) tmg.content.images = [imgUrl]
+		if (imgUrl) {
+			if (this.t.length) tmg.content.images = [imgUrl]
 			else tmg.content = <MsgContent>imgUrl
 		}
 		if (this.post_id.length) {
@@ -166,10 +169,11 @@ export class Msg {
 		this.offset += this.text.length
 	}
 
-	private at(m: At) {
+	private async at(m: At) {
 		switch (m.scope) {
 			case "user":
 				if (typeof m.id !== 'string') m.id = String(m.id)
+				if (!m.nickname) m.nickname = (await (await Villa.get(this.c, this.villa_id))?.getMemberInfo(Number(m.id)))?.basic?.nickname
 				this.t += `@${m.nickname || '你猜我at的谁'} `
 				this.entities.push({
 					entity: {

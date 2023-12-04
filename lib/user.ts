@@ -1,21 +1,4 @@
-import {Serve} from "./serve";
-import {lock} from "./common";
-
-class User {
-	uid: number;
-	c: Serve
-
-	protected constructor(c: Serve, uid: number, private _info: UserInfo) {
-		this.uid = uid
-		this.c = c
-
-		lock(this, "_info")
-	}
-}
-
-class Member extends User {
-
-}
+import {Perm} from "./villa";
 
 export interface UserInfo {
 	/** 用户 uid */
@@ -40,7 +23,17 @@ export interface MemberInfo {
 }
 
 /** 身份组可选颜色 */
-export type Color = "#6173AB" | "#F485D8" | "#F47884" | "#FFA54B" | "#7BC26F" | "#59A1EA" | "#977EE1"
+export enum Color {
+	"DarkBlue" = "#6173AB",
+	"Pink" = "#F485D8",
+	"Red" = "#F47884",
+	"Orange" = "#FFA54B",
+	"Green" = "#7BC26F",
+	"Blue" = "#59A1EA",
+	"Purple" = "#977EE1"
+}
+
+export type C = "DarkBlue" | "Pink" | "Red" | "Orange" | "Green" | "Blue" | "Purple"
 
 /** 身份组类型 */
 export type RoleType = "MEMBER_ROLE_TYPE_ALL_MEMBER"//所有人身份组
@@ -64,4 +57,14 @@ export interface MemberRole {
 	is_all_room: boolean
 	/** 指定的房间列表 */
 	room_ids: number[]
+	/** 身分组人数 */
+	member_num: number
+	/** 身分组权限 */
+	permissions: []
+	web_color: string
+	font_color: string
+	bg_color: string
+	priority: number
+	/** 是否详细 */
+	is_detail: boolean
 }

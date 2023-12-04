@@ -33,7 +33,5 @@ export interface Bot {
 }
 
 export interface MessageRet {
-	recode: number
-	message: string
-	data: { bot_msg_id: string }
+	bot_msg_id: string
 }

@@ -8,30 +8,16 @@ import Parser, {Events} from "./parser"
 import bodyParse from "body-parser";
 import {verifyPKCS1v15} from "./verify";
 import {AddQuickEmoticon, AuditCallback, CreateBot, DeleteBot, JoinVilla, SendMessage} from "./event";
-import {Color} from "./user";
+import {C, Color} from "./user";
 import {MsgContentInfo, QuoteInfo} from "./message";
 import {MessageRet} from "./event/baseEvent";
 import stream from "stream";
 import FormData from "form-data";
 import fs from "fs";
 import {Msg} from "./element";
-import {Villa} from "./villa";
+import {Perm, Villa, VillaInfo} from "./villa";
 
-/** 身份组可添加权限 */
-export type Perm = "mention_all" |
-	"recall_message" |
-	"pin_message" |
-	"manage_member_role" |
-	"edit_villa_info" |
-	"manage_group_and_room" |
-	"villa_silence" |
-	"black_out" |
-	"handle_apply" |
-	"manage_chat_room" |
-	"view_data_board" |
-	"manage_custom_event" |
-	"live_room_order" |
-	"manage_spotlight_collection"
+const pkg = require("../package.json")
 
 export class ServeRunTimeError {
 	constructor(public code: number, public message: string = "unknown") {
@@ -92,7 +78,10 @@ export interface Config {
 	/** 启动的主机地址，默认localhost */
 	host?: string
 
-	/** 米游社上传图片需要ck，因为不是调用的官方开发api，后续补上官方开发api */
+	/**
+	 * 米游社上传图片需要ck，因为不是调用的官方开发api，后续补上官方开发api
+	 * 如果配置了mys_ck会优先使用ck进行图片上传，不配置就走官方接口
+	 */
 	mys_ck?: string
 
 	/** 配置的回调地址 */
@@ -109,6 +98,11 @@ export class Serve extends EventEmitter {
 	private readonly pubKey: crypto.KeyObject
 	private readonly enSecret: string
 	private readonly jwkKey: crypto.JsonWebKey
+	private readonly state = {
+		start_time: Date.now()
+	}
+
+	readonly vl = new Map<number, VillaInfo>()
 
 	constructor(props: Config) {
 		super();
@@ -153,6 +147,10 @@ export class Serve extends EventEmitter {
 	/** 启动服务 */
 	private startServe(): any {
 		this.application.listen(this.port, this.host, () => {
+			this.logger.mark("---------------")
+			this.logger.mark(`Package Version: ${pkg.name}@${pkg.version} (Released on ${pkg.update})`)
+			this.logger.mark(`Repository Url: ${pkg.repository}`)
+			this.logger.mark("---------------")
 			this.logger.info(`服务已成功启动，服务地址：http://${this.host}:${this.port}`)
 			this.watchPath()
 			this.emit("online")
@@ -177,29 +175,44 @@ export class Serve extends EventEmitter {
 		return verifyPKCS1v15(this.jwkKey, d, Buffer.from(sign.trim(), "base64"))
 	}
 
+	/** 返回当前已加载的别野列表 */
+	getVillaList() {
+		return this.vl
+	}
+
+	/** 增加别野信息 */
+	addVillaInfo(villa_id: number, info: VillaInfo) {
+		this.vl.set(villa_id, info)
+	}
+
+	/** 删除别野信息 */
+	deleteVillaInfo(villa_id: number): boolean {
+		return this.vl.delete(villa_id)
+	}
+
 	/** 选择一个别野 */
-	pickVilla(vid: number) {
-		return Villa.get(this, vid)
+	async pickVilla(vid: number) {
+		return await Villa.get(this, vid)
 	}
 
 	/** 获取大别野信息 */
 	async getVillaInfo(villa_id: number) {
-		return this.pickVilla(villa_id)?.getVillaInfo();
+		return (await this.pickVilla(villa_id))?.getVillaInfo();
 	}
 
 	/** 获取别野用户信息 */
-	async getUserInfo(villa_id: number, uid: number) {
-		return this.pickVilla(villa_id)?.getMemberInfo(uid)
+	async getMemberInfo(villa_id: number, uid: number) {
+		return (await this.pickVilla(villa_id))?.getMemberInfo(uid)
 	}
 
 	/** 获取大别野成员列表 */
-	async getVillaUsers(villa_id: number, size: number, offset_str: string = "") {
-		return this.pickVilla(villa_id)?.getVillaUsers(size, offset_str)
+	async getVillaMembers(villa_id: number, size: number, offset_str: string = "") {
+		return (await this.pickVilla(villa_id))?.getVillaMembers(size, offset_str)
 	}
 
 	/** 提出大别野用户 */
 	async kickUser(villa_id: number, uid: number) {
-		return this.pickVilla(villa_id)?.kickUser(uid)
+		return (await this.pickVilla(villa_id))?.kickUser(uid)
 	}
 
 	/** 置顶消息 */
@@ -221,99 +234,72 @@ export class Serve extends EventEmitter {
 
 	/** 创建分组 */
 	async createGroup(villa_id: number, group_name: string) {
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/createGroup", "post", "", {
-			group_name: group_name
-		})
+		return (await this.pickVilla(villa_id))?.createGroup(group_name)
 	}
 
 	/** 编辑分组，只允许编辑分组名称 */
 	async editGroup(villa_id: number, group_id: number, group_name: string) {
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/editGroup", "post", "", {
-			group_id: group_id,
-			group_name: group_name
-		})
+		return (await this.pickVilla(villa_id))?.editGroup(group_id, group_name)
 	}
 
 	/** deleteGroup，删除分组 */
 	async deleteGroup(villa_id: number, group_id: number) {
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/deleteGroup", "post", "", {
-			group_id: group_id
-		})
+		return (await this.pickVilla(villa_id))?.deleteGroup(group_id)
 	}
 
 	/** 获取分组列表 */
 	async getGroupList(villa_id: number) {
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/getGroupList", "get", "")
+		return (await this.pickVilla(villa_id))?.getGroupList()
 	}
 
 	/** 编辑房间，只支持编辑名称 */
 	async editRoom(villa_id: number, room_id: number, room_name: string) {
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/editRoom", "post", "", {
-			room_id: room_id,
-			room_name: room_name
-		})
+		return (await this.pickVilla(villa_id))?.editRoom(room_id, room_name)
 	}
 
 	/** 删除房间 */
 	async deleteRoom(villa_id: number, room_id: number) {
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/deleteRoom", "post", "", {
-			room_id: room_id
-		})
+		return (await this.pickVilla(villa_id))?.deleteRoom(room_id)
 	}
 
 	/** 获取房间信息 */
 	async getRoom(villa_id: number, room_id: number) {
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/getRoom", "get", `?room_id=${room_id}`)
+		return (await this.pickVilla(villa_id))?.getRoom(room_id)
 	}
 
 	/** 获取别野房间列表信息 */
-	async getVillaRoomList(villa_id: number) {
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/getVillaGroupRoomList", "get", "")
+	async getVillaRoomList(villa_id: number, f = false) {
+		return (await this.pickVilla(villa_id))?.getVillaRoomList(f)
 	}
 
 	/** 向身份组操作用户 */
 	async operateMember(villa_id: number, role_id: number, uid: number, is_add: boolean) {
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/operateMemberToRole", "post", "", {
-			role_id: role_id,
-			uid: uid,
-			is_add: is_add
-		})
+		return (await this.pickVilla(villa_id))?.operateMember(role_id, uid, is_add)
 	}
 
 	/** 创建身份组 */
-	async createRole(villa_id: number, name: string, color: Color, permissions: Perm[]) {
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/createMemberRole", "post", "", {
-			name: name,
-			color: color,
-			permissions: permissions
-		})
+	async createRole(villa_id: number, name: string, color: C, permissions: Perm[]) {
+		return (await this.pickVilla(villa_id))?.createRole(name, color, permissions)
 	}
 
 	/** 编辑身份组 */
-	async editRole(villa_id: number, id: number, name: string, color: Color, permissions: Perm[]) {
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/editMemberRole", "post", "", {
-			id: id,
-			name: name,
-			color: color,
-			permissions: permissions
-		})
+	async editRole(villa_id: number, id: number, name: string, color: C, permissions: Perm[]) {
+		return (await this.pickVilla(villa_id))?.editRole(id, name, color, permissions)
 	}
 
 	/** 删除身份组 */
 	async deleteRole(villa_id: number, id: number) {
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/deleteMemberRole", "post", "", {
-			id: id
-		})
+		return (await this.pickVilla(villa_id))?.deleteRole(id)
 	}
 
 	/** 获取身份组 */
 	async getRole(villa_id: number, role_id: number) {
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/getMemberRoleInfo", "get", `?role_id=${role_id}`)
+		return (await this.pickVilla(villa_id))?.getRole(role_id)
 	}
 
 	/** 获取大别野所有身份组 */
 	async getVillaRoles(villa_id: number) {
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/getVillaMemberRoles", "get", "")
+		return (await this.pickVilla(villa_id))?.getVillaRoles()
 	}
 
 	/** 获取全部表情信息 */
@@ -341,7 +327,8 @@ export class Serve extends EventEmitter {
 	}
 
 	/** 图片转存，只能转存有网络地址的图片，上传图片请配置mys_ck调用上传接口 */
-	async transferImage(villa_id: number, url: string) {
+	async transferImage(url: string, villa_id?: number) {
+		if (!villa_id) throw new ServeRunTimeError(-1, '图片转存缺少参数villa_id')
 		return this.fetchResult(villa_id, "/vila/api/bot/platform/transferImage", "post", "", {
 			url: url
 		})
@@ -349,7 +336,7 @@ export class Serve extends EventEmitter {
 
 	/** 发送消息 */
 	async sendMsg(room_id: number, villa_id: number, content: any, quote?: Quotable): Promise<MessageRet> {
-		const {message, obj_name} = await this._convert(content)
+		const {message, obj_name} = await this._convert(content, villa_id)
 		if (quote) {
 			message.quote = {
 				quoted_message_id: quote.message_id,
@@ -373,12 +360,14 @@ export class Serve extends EventEmitter {
 				"Content-Type": "application/json"
 			}
 		})
-		return data
+		const r = data.data
+		if (!r) throw new ServeRunTimeError(-8, `消息发送失败：${data.message}`)
+		return r
 	}
 
-	private async _convert(msg: any): Promise<{ message: MsgContentInfo, obj_name: string | undefined }> {
+	private async _convert(msg: any, villa_id: number): Promise<{ message: MsgContentInfo, obj_name: string | undefined }> {
 		if (!Array.isArray(msg)) msg = [msg]
-		return await new Msg(this).parse(msg).gen();
+		return (await new Msg(this, villa_id).parse(msg)).gen();
 	}
 
 	private watchPath() {
@@ -413,15 +402,21 @@ export class Serve extends EventEmitter {
 					"Content-Type": "application/json"
 				}
 			})
-		return data.data
+		const r = data.data
+		if (!r) throw new ServeRunTimeError(-7, `接口调用出错：${data.message}`)
+		return r
 	}
 
-	async uploadImage(url: string): Promise<any> {
-		if (url.startsWith("https://") || url.startsWith("http://")) return url
+	async uploadImage(url: string, villa_id?: number): Promise<any> {
+		if (url.startsWith("https://") || url.startsWith("http://")) {
+			if (/^https?:\/\/(webstatic.mihoyo.com)|(upload-bbs.miyoushe.com)/.test(url)) return url
+			else return this.transferImage(url, villa_id)
+		}
 		try {
 			const readable = fs.createReadStream(url);
 			const ext = url.match(/\.\w+$/)?.[0]?.slice(1)
-			const {message, data} = await this._uploadImage(readable, ext)
+			if (this.config.mys_ck) var {message, data} = await this._uploadImageWithCk(readable, ext)
+			else var {message, data} = await this._uploadImageApi(readable, ext, villa_id)
 			if (!data) throw new ServeRunTimeError(-4, message)
 			return data.url
 		} catch (e: any) {
@@ -429,9 +424,10 @@ export class Serve extends EventEmitter {
 		}
 	}
 
-	private async _uploadImage(readable: stream.Readable, e: string | undefined): Promise<{ recode: number, message: string, data: any }> {
+	private async _uploadImageWithCk(readable: stream.Readable, e: string | undefined): Promise<{ recode: number, message: string, data: any }> {
 		if (!this.config.mys_ck) throw new ServeRunTimeError(-3, "未配置mys_ck，无法调用上传接口")
 		if (!readable.readable) throw new ServeRunTimeError(-1, "The first argument is not readable stream")
+		/** 支持jpg,jpeg,png,gif,bmp **/
 		const ext = e || 'png';
 		const file = await md5Stream(readable);
 		const md5 = file.md5.toString("hex");
@@ -456,6 +452,33 @@ export class Serve extends EventEmitter {
 		form.append("file", file.buff, {filename: param.params.name});
 		return (await axios.post(param.params.host, form, {
 			headers: {...form.getHeaders(), "Connection": 'Keep-Alive', "Accept-Encoding": "gzip"}
+		})).data
+	}
+
+	private async _uploadImageApi(readable: stream.Readable, e: string | undefined, villa_id?: number): Promise<{ recode: number, message: string, data: any }> {
+		if (!villa_id) throw new ServeRunTimeError(-1, '上传图片缺少参数villa_id')
+		const path = "/vila/api/bot/platform/getUploadImageParams"
+		const ext = e || 'png';
+		const file = await md5Stream(readable);
+		const md5 = file.md5.toString("hex");
+		const {params} = await this.fetchResult(villa_id, path, "get", `?md5=${md5}&ext=${ext}`)
+		if (!params) throw new ServeRunTimeError(-9, "上传图片获取参数失败")
+		const form = new FormData()
+		form.append("x:extra", params["callback_var"]["x:extra"])
+		form.append("OSSAccessKeyId", params.accessid)
+		form.append("signature", params.signature)
+		form.append("success_action_status", params.success_action_status)
+		form.append("name", params.name)
+		form.append("callback", params.callback)
+		form.append("x-oss-content-type", params.x_oss_content_type)
+		form.append("key", params.key)
+		form.append("policy", params.policy)
+		form.append("Content-Disposition", params.content_disposition)
+		form.append("file", file.buff)
+		return (await axios.post(params.host, form, {
+			headers: {
+				...form.getHeaders()
+			}
 		})).data
 	}
 }
