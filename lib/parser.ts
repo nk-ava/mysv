@@ -42,8 +42,9 @@ export default class Parser {
 	async doParse(): Promise<Array<Events>> {
 		const es: [string, any][] = Object.entries(this.event_data)
 		const rs = new Array<Events>()
+		let info = await Villa.getInfo(this.c, this.baseEvent.source.villa_id) as VillaInfo
+		this.baseEvent.source.villa_name = info.name
 		for (let [k, v] of es) {
-			let info = await Villa.getInfo(this.c, this.baseEvent.source.villa_id) as VillaInfo
 			switch (k) {
 				case "JoinVilla":
 					rs.push({
@@ -111,7 +112,7 @@ export default class Parser {
 						}
 					} as AddQuickEmoticon)
 					const member = await (await Villa.get(this.c, this.baseEvent.source.villa_id))?.getMemberInfo(v.uid)
-					this.c.logger.info(`recv from: [Villa: ${info.name || "unknown"}(${this.baseEvent.source.villa_id}), Member: ${member?.basic?.nickname || "unknown"}(${v.uid})] [表态表情]${v.emoticon}`)
+					this.c.logger.info(`recv from: [Villa: ${info.name || "unknown"}(${this.baseEvent.source.villa_id}), Member: ${member?.basic?.nickname || "unknown"}(${v.uid})] [回复快捷表情]${v.emoticon}`)
 					break
 				case "AuditCallback":
 					rs.push({

@@ -15,6 +15,8 @@ export interface BaseEvent {
 export interface Source {
 	/** 实践所属的大别野id */
 	villa_id: number
+	/** 大别野名称 */
+	villa_name?: string
 	/** 机器人信息 */
 	bot: Bot
 }
