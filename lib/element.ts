@@ -51,6 +51,7 @@ export enum CType {
 export interface Image {
 	type: 'image'
 	file: string
+	headers?: any
 	width?: number
 	height?: number
 	size?: number
@@ -79,12 +80,13 @@ export type Elem = Text | At | Image | Post | Link | LinkRoom | Button | Templat
 
 export class Msg {
 	private readonly entities: Array<Entity>
-	private readonly imgs: Array<ImageMsg>
 	private readonly post_id: Array<string>
 	private readonly mention: MentionedInfo
 	private readonly panel: Panel
 	private readonly villa_id: number
+	private img: ImageMsg | undefined
 	private t: string
+	private brief: string
 	private origin: Array<any> | undefined
 	private offset: number
 	private obj_name: string
@@ -105,7 +107,7 @@ export class Msg {
 			big_component_group_list: []
 		}
 		this.t = ""
-		this.imgs = new Array<ImageMsg>()
+		this.brief = ""
 		this.post_id = Array<string>()
 		this.mention = {type: 0, userIdList: []}
 		this.offset = 0
@@ -129,21 +131,18 @@ export class Msg {
 	}
 
 	async gen() {
-		let imgUrl: ImageMsg | undefined
-		if (this.imgs.length) {
-			this.imgs[0].url = await this.c.uploadImage(this.imgs[0].url, this.villa_id)
-			imgUrl = this.imgs[0]
-			if (this.t.length === 0) this.obj_name = "MHY:Image"
-		} else imgUrl = undefined
 		const tmg = {
 			content: {
 				text: this.t,
 				entities: this.entities
 			}
 		} as MsgContentInfo
-		if (imgUrl) {
-			if (this.t.length) tmg.content.images = [imgUrl]
-			else tmg.content = <MsgContent>imgUrl
+		if (this.img) {
+			if (this.t.length) tmg.content.images = [this.img]
+			else {
+				tmg.content = <MsgContent>this.img
+				this.obj_name = "MHY:Image"
+			}
 		}
 		if (this.post_id.length) {
 			tmg.content.post_id = this.post_id[0]
@@ -153,12 +152,14 @@ export class Msg {
 		if (this.smallComponent.length) this.panel.small_component_group_list?.push(this.smallComponent)
 		if (this.midComponent.length) this.panel.mid_component_group_list?.push(this.midComponent)
 		return {
-			message: tmg, obj_name: this.obj_name, panel: this.panel, brief: this.t
+			message: tmg, obj_name: this.obj_name, panel: this.panel, brief: this.brief
 		}
 	}
 
 	private text(obj: Text) {
+		if (!obj.text) return
 		this.t += obj.text
+		this.brief += obj.text
 		if (obj.style) {
 			if (obj.style.includes("b")) {
 				this.entities.push({
@@ -211,6 +212,7 @@ export class Msg {
 				if (typeof m.id !== 'string') m.id = String(m.id)
 				if (!m.nickname) m.nickname = (await (await Villa.get(this.c, this.villa_id))?.getMemberInfo(Number(m.id)))?.basic?.nickname
 				this.t += `@${m.nickname || '你猜我at的谁'} `
+				this.brief += `@${m.nickname || '你猜我at的谁'} `
 				this.entities.push({
 					entity: {
 						type: "mentioned_user",
@@ -227,6 +229,7 @@ export class Msg {
 				break
 			case "all":
 				this.t += `@全体成员 `
+				this.brief += `@全体成员 `
 				this.entities.push({
 					entity: {
 						type: 'mentioned_all'
@@ -239,6 +242,7 @@ export class Msg {
 				break
 			case "bot":
 				this.t += `@${m.nickname || '你猜我at的谁'}`
+				this.brief += `@${m.nickname || '你猜我at的谁'}`
 				this.entities.push({
 					entity: {
 						type: "mentioned_robot",
@@ -256,18 +260,21 @@ export class Msg {
 		}
 	}
 
-	private image(m: Image) {
+	private async image(m: Image) {
 		if (!m.file || m.file === "") return
-		let img: ImageMsg = {
-			url: m.file
-		}
-		if (m.width && m.height) img.size = {width: Number(m.width), height: Number(m.height)}
-		if (typeof m.size !== 'undefined') img.file_size = Number(m.size)
-		this.imgs.push(img)
+		if (this.img) return;
+		this.brief += '[图片]'
+		this.img = {
+			url: await this.c.uploadImage(m.file, this.villa_id, m.headers)
+		} as ImageMsg
+		if (m.width && m.height) this.img.size = {width: Number(m.width), height: Number(m.height)}
+		if (typeof m.size !== 'undefined') this.img.file_size = Number(m.size)
 	}
 
 	private link(m: Link) {
+		if (!m.url) return
 		this.t += m.name || m.url
+		this.brief += `[${m.name || '链接'}](${m.url})`
 		this.entities.push({
 			entity: {
 				type: "link",
@@ -280,9 +287,11 @@ export class Msg {
 		this.offset += (m.name || m.url).length
 	}
 
-	private rlink(m: LinkRoom) {
-		m = m as LinkRoom
+	private async rlink(m: LinkRoom) {
+		if (!m.vid || !m.rid) return
+		if (!m.name) m.name = (await (await Villa.get(this.c, Number(m.vid)))?.getRoom(Number(m.rid)))?.room_name
 		this.t += `#${m.name || '这个房间'} `
+		this.brief += `[#${m.name || '这个房间'}](${m.vid}-${m.rid})`
 		this.entities.push({
 			entity: {
 				type: 'villa_room_link',
@@ -298,6 +307,7 @@ export class Msg {
 	private post(m: Post) {
 		if (typeof m.id !== 'string') m.id = String(m.id)
 		if (!m.id || m.id === "") return
+		this.brief += `[帖子](${m.id})`
 		this.post_id.push(m.id)
 	}
 

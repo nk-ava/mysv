@@ -1,11 +1,13 @@
 import crypto from "crypto";
 import stream from "stream";
 import {ServeRunTimeError} from "./serve";
+import * as os from "os";
 
 export const UintSize = 32 << (~0 >>> 63)
 export const _W = UintSize - 1
 export const _MASK = BigInt((1n << BigInt(_W)) - 1n)
 export const BUF0 = Buffer.alloc(0)
+export const TMP_PATH = os.tmpdir()
 
 /** DX 寄存器 */
 let DX: bigint = 0n

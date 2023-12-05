@@ -1,7 +1,7 @@
 import * as log4js from "log4js";
 import crypto from "crypto";
 import axios from "axios";
-import {Encode, lock, md5Stream} from "./common"
+import {Encode, lock, md5Stream, TMP_PATH} from "./common"
 import express, {Application} from "express";
 import EventEmitter from "node:events";
 import Parser, {Events} from "./parser"
@@ -16,14 +16,15 @@ import {
 	JoinVilla,
 	SendMessage
 } from "./event";
-import {C, Color} from "./user";
-import {Component, MsgContentInfo, Panel, QuoteInfo} from "./message";
+import {C} from "./user";
+import {MsgContentInfo, Panel, QuoteInfo} from "./message";
 import {MessageRet} from "./event/baseEvent";
 import stream from "stream";
 import FormData from "form-data";
 import fs from "fs";
-import {Button, Elem, Msg} from "./element";
+import {Elem, Msg} from "./element";
 import {Perm, Villa, VillaInfo} from "./villa";
+import {Readable} from "node:stream";
 
 const pkg = require("../package.json")
 
@@ -435,14 +436,35 @@ export class Serve extends EventEmitter {
 		return r
 	}
 
-	async uploadImage(url: string, villa_id?: number): Promise<any> {
-		if (url.startsWith("https://") || url.startsWith("http://")) {
-			if (/^https?:\/\/(webstatic.mihoyo.com)|(upload-bbs.miyoushe.com)/.test(url)) return url
-			else return this.transferImage(url, villa_id)
-		}
+	async uploadImage(url: string, villa_id?: number, headers?: any): Promise<string> {
 		try {
-			const readable = fs.createReadStream(url);
-			const ext = url.match(/\.\w+$/)?.[0]?.slice(1)
+			if (url.startsWith("https://") || url.startsWith("http://")) {
+				if (/^https?:\/\/(webstatic.mihoyo.com)|(upload-bbs.miyoushe.com)/.test(url)) return url
+				else return await this.transferImage(url, villa_id)
+			}
+		} catch (err) {
+			this.logger.mark(`图片(${url})转存失败，将使用本地上传`)
+			const tmpFile = TMP_PATH + `/${crypto.randomUUID()}-${Date.now()}`
+			const body = (await axios.get(url, {
+				headers: headers,
+				responseType: 'stream'
+			})).data as Readable
+			await new Promise(resolve => {
+				body.pipe(fs.createWriteStream(tmpFile))
+				body.on("end", resolve)
+			})
+			const new_url = await this._uploadLocalImage(tmpFile, villa_id)
+			fs.unlink(tmpFile, () => {
+			})
+			return new_url
+		}
+		return await this._uploadLocalImage(url, villa_id)
+	}
+
+	private async _uploadLocalImage(file: string, villa_id?: number): Promise<string> {
+		try {
+			const readable = fs.createReadStream(file);
+			const ext = file.match(/\.\w+$/)?.[0]?.slice(1)
 			if (this.config.mys_ck) var {message, data} = await this._uploadImageWithCk(readable, ext)
 			else var {message, data} = await this._uploadImageApi(readable, ext, villa_id)
 			if (!data) throw new ServeRunTimeError(-4, message)
