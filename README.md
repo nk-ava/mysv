@@ -17,7 +17,7 @@
 **Usage:**
 
 ```js
-const {createServe} = require("./lib")
+const {createServe} = require("mysv")
 
 const app = createServe({
     bot_id: 'bot_id',

@@ -1,7 +1,7 @@
 import * as log4js from "log4js";
 import crypto from "crypto";
 import axios from "axios";
-import {Encode, lock, md5Stream, TMP_PATH} from "./common"
+import {Encode, localIP, lock, md5Stream, TMP_PATH} from "./common"
 import express, {Application} from "express";
 import EventEmitter from "node:events";
 import Parser, {Events} from "./parser"
@@ -87,7 +87,7 @@ export interface Config {
 
 	/** 启动的端口号，默认8081 */
 	port?: number
-	/** 启动的主机地址，默认localhost */
+	/** 启动的主机地址，默认为本机ip */
 	host?: string
 
 	/**
@@ -121,14 +121,14 @@ export class Serve extends EventEmitter {
 		this.config = {
 			level: 'info',
 			port: 8081,
-			host: 'localhost',
+			host: localIP(),
 			is_verify: true,
 			...props
 		}
 		this.mhyHost = "https://bbs-api.miyoushe.com"
 		this.application = express()
-		this.host = props.host || 'localhost'
-		this.port = props.port || 8081
+		this.host = this.config.host || 'localhost'
+		this.port = this.config.port || 8081
 		this.pubKey = crypto.createPublicKey(props.pub_key)
 		this.jwkKey = this.pubKey.export({format: "jwk"})
 		this.enSecret = this.encryptSecret()
@@ -192,16 +192,6 @@ export class Serve extends EventEmitter {
 		return this.vl
 	}
 
-	/** 增加别野信息 */
-	addVillaInfo(villa_id: number, info: VillaInfo) {
-		this.vl.set(villa_id, info)
-	}
-
-	/** 删除别野信息 */
-	deleteVillaInfo(villa_id: number): boolean {
-		return this.vl.delete(villa_id)
-	}
-
 	/** 选择一个别野 */
 	async pickVilla(vid: number) {
 		return await Villa.get(this, vid)
@@ -209,17 +199,17 @@ export class Serve extends EventEmitter {
 
 	/** 获取大别野信息 */
 	async getVillaInfo(villa_id: number) {
-		return (await this.pickVilla(villa_id))?.getVillaInfo();
+		return (await this.pickVilla(villa_id))?.getInfo();
 	}
 
 	/** 获取别野用户信息 */
-	async getMemberInfo(villa_id: number, uid: number) {
-		return (await this.pickVilla(villa_id))?.getMemberInfo(uid)
+	async getMemberInfo(villa_id: number, uid: number, force?: boolean) {
+		return (await this.pickVilla(villa_id))?.getMemberInfo(uid, force)
 	}
 
 	/** 获取大别野成员列表 */
 	async getVillaMembers(villa_id: number, size: number, offset_str: string = "") {
-		return (await this.pickVilla(villa_id))?.getVillaMembers(size, offset_str)
+		return (await this.pickVilla(villa_id))?.getMembers(size, offset_str)
 	}
 
 	/** 提出大别野用户 */
@@ -260,8 +250,8 @@ export class Serve extends EventEmitter {
 	}
 
 	/** 获取分组列表 */
-	async getGroupList(villa_id: number) {
-		return (await this.pickVilla(villa_id))?.getGroupList()
+	async getGroupList(villa_id: number, force?: boolean) {
+		return (await this.pickVilla(villa_id))?.getGroups(force)
 	}
 
 	/** 编辑房间，只支持编辑名称 */
@@ -275,13 +265,13 @@ export class Serve extends EventEmitter {
 	}
 
 	/** 获取房间信息 */
-	async getRoom(villa_id: number, room_id: number) {
-		return (await this.pickVilla(villa_id))?.getRoom(room_id)
+	async getRoom(villa_id: number, room_id: number, force?: boolean) {
+		return (await this.pickVilla(villa_id))?.getRoom(room_id, force)
 	}
 
 	/** 获取别野房间列表信息 */
-	async getVillaRoomList(villa_id: number, f = false) {
-		return (await this.pickVilla(villa_id))?.getVillaRoomList(f)
+	async getVillaRoomList(villa_id: number, f?: boolean) {
+		return (await this.pickVilla(villa_id))?.getRooms(f)
 	}
 
 	/** 向身份组操作用户 */
@@ -305,13 +295,13 @@ export class Serve extends EventEmitter {
 	}
 
 	/** 获取身份组 */
-	async getRole(villa_id: number, role_id: number) {
-		return (await this.pickVilla(villa_id))?.getRole(role_id)
+	async getRole(villa_id: number, role_id: number, detail?: boolean) {
+		return (await this.pickVilla(villa_id))?.getRole(role_id, detail)
 	}
 
 	/** 获取大别野所有身份组 */
-	async getVillaRoles(villa_id: number) {
-		return (await this.pickVilla(villa_id))?.getVillaRoles()
+	async getVillaRoles(villa_id: number, force?: boolean) {
+		return (await this.pickVilla(villa_id))?.getRoles(force)
 	}
 
 	/** 获取全部表情信息 */
@@ -341,9 +331,9 @@ export class Serve extends EventEmitter {
 	/** 图片转存，只能转存有网络地址的图片，上传图片请配置mys_ck调用上传接口 */
 	async transferImage(url: string, villa_id?: number) {
 		if (!villa_id) throw new ServeRunTimeError(-1, '图片转存缺少参数villa_id')
-		return this.fetchResult(villa_id, "/vila/api/bot/platform/transferImage", "post", "", {
+		return (await this.fetchResult(villa_id, "/vila/api/bot/platform/transferImage", "post", "", {
 			url: url
-		})
+		})).new_url
 	}
 
 	/** 创建消息组件模板，创建成功后会返回 template_id，发送消息时，可以使用 template_id 填充 component_board */
@@ -431,6 +421,7 @@ export class Serve extends EventEmitter {
 					"Content-Type": "application/json"
 				}
 			})
+		this.logger.debug(`axios请求参数：{host: ${this.mhyHost}${path}${query}, method: ${method}, body: ${JSON.stringify(body)}}`)
 		const r = data.data
 		if (!r) throw new ServeRunTimeError(-7, `${path}返回错误：${data.message}`)
 		return r
@@ -443,7 +434,7 @@ export class Serve extends EventEmitter {
 				else return await this.transferImage(url, villa_id)
 			}
 		} catch (err) {
-			this.logger.mark(`图片(${url})转存失败，将使用本地上传`)
+			this.logger.mark(`图片(${url})转存失败(${(err as Error).message || "unknown"})，将使用本地上传`)
 			const tmpFile = TMP_PATH + `/${crypto.randomUUID()}-${Date.now()}`
 			const body = (await axios.get(url, {
 				headers: headers,

@@ -22,7 +22,8 @@ export interface Text {
 export interface At {
 	type: 'at'
 	scope?: 'user' | 'bot' | 'all',
-	id: string
+	id?: string | number
+	style?: string
 	nickname?: string
 }
 
@@ -59,21 +60,23 @@ export interface Image {
 
 export interface Post {
 	type: 'post'
-	id: string
+	id: string | number
 }
 
 export interface Link {
 	type: 'link'
 	url: string
 	name?: string
+	style?: string
 	ac_tk?: boolean
 }
 
 export interface LinkRoom {
 	type: 'rlink'
 	name?: string
-	vid: string
-	rid: string
+	style?: string
+	vid: string | number
+	rid: string | number
 }
 
 export type Elem = Text | At | Image | Post | Link | LinkRoom | Button | Template | string
@@ -160,68 +163,32 @@ export class Msg {
 		if (!obj.text) return
 		this.t += obj.text
 		this.brief += obj.text
-		if (obj.style) {
-			if (obj.style.includes("b")) {
-				this.entities.push({
-					entity: {
-						type: "style",
-						font_style: "bold"
-					} as FontStyle,
-					offset: this.offset,
-					length: obj.text.length
-				})
-			}
-			if (obj.style.includes("i")) {
-				this.entities.push({
-					entity: {
-						type: "style",
-						font_style: "italic"
-					} as FontStyle,
-					offset: this.offset,
-					length: obj.text.length
-				})
-			}
-			if (obj.style.includes("s")) {
-				this.entities.push({
-					entity: {
-						type: "style",
-						font_style: "strikethrough"
-					} as FontStyle,
-					offset: this.offset,
-					length: obj.text.length
-				})
-			}
-			if (obj.style.includes("u")) {
-				this.entities.push({
-					entity: {
-						type: "style",
-						font_style: "underline"
-					} as FontStyle,
-					offset: this.offset,
-					length: obj.text.length
-				})
-			}
-		}
-		this.offset += obj.text.length
+		const len = obj.text.length
+		if (obj.style) this.style(obj, len)
+		this.offset += len
 	}
 
 	private async at(m: At) {
 		if (!m.scope) m.scope = 'user'
+		let len: number
 		switch (m.scope) {
 			case "user":
-				if (typeof m.id !== 'string') m.id = String(m.id)
-				if (!m.nickname) m.nickname = (await (await Villa.get(this.c, this.villa_id))?.getMemberInfo(Number(m.id)))?.basic?.nickname
-				this.t += `@${m.nickname || '你猜我at的谁'} `
-				this.brief += `@${m.nickname || '你猜我at的谁'} `
+				if (!m.id) break
+				m.id = String(m.id)
+				if (!m.nickname) m.nickname = (await (await Villa.get(this.c, this.villa_id))?.getMemberInfo(Number(m.id)))?.basic?.nickname || '你猜我at的谁'
+				this.t += `@${m.nickname} `
+				this.brief += `@${m.nickname} `
+				len = m.nickname.length + 2
+				if (m.style) this.style(m, len)
 				this.entities.push({
 					entity: {
 						type: "mentioned_user",
 						user_id: m.id
 					} as AtUser,
 					offset: this.offset,
-					length: (m.nickname || '你猜我at的谁').length + 2
+					length: len
 				} as Entity)
-				this.offset += (m.nickname || '你猜我at的谁').length + 2
+				this.offset += len
 				if (!this.mention.type) {
 					this.mention.type = 2
 					this.mention.userIdList.push(m.id)
@@ -230,6 +197,7 @@ export class Msg {
 			case "all":
 				this.t += `@全体成员 `
 				this.brief += `@全体成员 `
+				if (m.style) this.style(m, 6)
 				this.entities.push({
 					entity: {
 						type: 'mentioned_all'
@@ -241,17 +209,22 @@ export class Msg {
 				this.mention.type = 1
 				break
 			case "bot":
-				this.t += `@${m.nickname || '你猜我at的谁'}`
-				this.brief += `@${m.nickname || '你猜我at的谁'}`
+				if (!m.id) break
+				m.id = String(m.id)
+				if (!m.nickname) m.nickname = '你猜我at的谁'
+				this.t += `@${m.nickname} `
+				this.brief += `@${m.nickname} `
+				len = m.nickname.length + 2
+				if (m.style) this.style(m, len)
 				this.entities.push({
 					entity: {
 						type: "mentioned_robot",
 						bot_id: m.id
 					} as AtRobot,
 					offset: this.offset,
-					length: (m.nickname || '你猜我at的谁').length + 2
+					length: len
 				} as Entity)
-				this.offset += (m.nickname || '你猜我at的谁').length + 2
+				this.offset += len
 				if (!this.mention.type) {
 					this.mention.type = 2
 					this.mention.userIdList.push(m.id)
@@ -273,8 +246,10 @@ export class Msg {
 
 	private link(m: Link) {
 		if (!m.url) return
-		this.t += m.name || m.url
 		this.brief += `[${m.name || '链接'}](${m.url})`
+		if (!m.name) m.name = m.url
+		this.t += m.name
+		if (m.style) this.style(m, m.name.length)
 		this.entities.push({
 			entity: {
 				type: "link",
@@ -282,16 +257,17 @@ export class Msg {
 				requires_bot_access_token: m.ac_tk || false
 			} as LinkMsg,
 			offset: this.offset,
-			length: (m.name || m.url).length
+			length: m.name.length
 		} as Entity)
-		this.offset += (m.name || m.url).length
+		this.offset += m.name.length
 	}
 
 	private async rlink(m: LinkRoom) {
 		if (!m.vid || !m.rid) return
-		if (!m.name) m.name = (await (await Villa.get(this.c, Number(m.vid)))?.getRoom(Number(m.rid)))?.room_name
-		this.t += `#${m.name || '这个房间'} `
-		this.brief += `[#${m.name || '这个房间'}](${m.vid}-${m.rid})`
+		if (!m.name) m.name = (await (await Villa.get(this.c, Number(m.vid)))?.getRoom(Number(m.rid)))?.room_name || '这个房间'
+		this.t += `#${m.name} `
+		this.brief += `[#${m.name}](${m.vid}-${m.rid})`
+		if (m.style) this.style(m, m.name?.length + 2)
 		this.entities.push({
 			entity: {
 				type: 'villa_room_link',
@@ -299,13 +275,13 @@ export class Msg {
 				room_id: `${m.rid}`
 			} as LinkRoomMsg,
 			offset: this.offset,
-			length: `#${m.name || '这个房间'} `.length
+			length: m.name.length + 2
 		})
-		this.offset += `#${m.name || '这个房间'} `.length
+		this.offset += m.name.length + 2
 	}
 
 	private post(m: Post) {
-		if (typeof m.id !== 'string') m.id = String(m.id)
+		m.id = String(m.id)
 		if (!m.id || m.id === "") return
 		this.brief += `[帖子](${m.id})`
 		this.post_id.push(m.id)
@@ -366,5 +342,48 @@ export class Msg {
 
 	private template(m: Template) {
 		this.panel.template_id = m.id
+	}
+
+	private style(obj: any, len: number) {
+		if (obj.style.includes("b")) {
+			this.entities.push({
+				entity: {
+					type: "style",
+					font_style: "bold"
+				} as FontStyle,
+				offset: this.offset,
+				length: len
+			})
+		}
+		if (obj.style.includes("i")) {
+			this.entities.push({
+				entity: {
+					type: "style",
+					font_style: "italic"
+				} as FontStyle,
+				offset: this.offset,
+				length: len
+			})
+		}
+		if (obj.style.includes("s")) {
+			this.entities.push({
+				entity: {
+					type: "style",
+					font_style: "strikethrough"
+				} as FontStyle,
+				offset: this.offset,
+				length: len
+			})
+		}
+		if (obj.style.includes("u")) {
+			this.entities.push({
+				entity: {
+					type: "style",
+					font_style: "underline"
+				} as FontStyle,
+				offset: this.offset,
+				length: len
+			})
+		}
 	}
 }

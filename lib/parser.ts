@@ -11,7 +11,7 @@ import {
 import {MessageRet} from "./event/baseEvent";
 import {Quotable, Serve} from "./serve";
 import {Villa, VillaInfo} from "./villa";
-import {At, Elem, Text} from "./element";
+import {At, Button, CType, Elem, Image, Link, LinkRoom, Template, Text} from "./element";
 import {Entity} from "./message";
 import {User} from "./event/cbEvents";
 
@@ -60,7 +60,7 @@ export default class Parser {
 					const msg = content.content.text.replace(`@${this.baseEvent.source.bot.name} `, "")
 					rs.push({
 						...this.baseEvent,
-						message: this.parseContent(content.content),
+						message: this.parseContent(content.content, content.panel),
 						user: content.user as User,
 						msg: msg,
 						from_uid: v.from_user_id,
@@ -92,6 +92,7 @@ export default class Parser {
 						...this.baseEvent
 					})
 					this.c.logger.info(`机器人 ${this.baseEvent.source.bot.name}(${this.baseEvent.source.bot.id})被移出大别野[${info.name || "unknown"}](${this.baseEvent.source.villa_id})`)
+					this.c.vl.delete(this.baseEvent.source.villa_id)
 					break
 				case "AddQuickEmoticon":
 					rs.push({
@@ -152,41 +153,108 @@ export default class Parser {
 		return rs
 	}
 
-	/** 米游社用户暂时只能对机器人发送MHY:Text类型消息，所以暂时只解析MYH：Text类型消息 */
-	private parseContent(content: any): Elem[] {
+	/** 米游社用户暂时只能对机器人发送MHY:Text类型消息，所以暂时只解析MYH：Text类型消息和组件消息 */
+	private parseContent(content: any, panel?: any): Elem[] {
 		const rs: Elem[] = []
 		const text = content.text
 		const entities = content.entities as Array<Entity>
+		const images = content?.images?.[0]
 		let now = 0
 		entities.sort((x, y) => (x?.offset || 0) - (y?.offset || 0))
-		for (let entity of entities) {
-			if (now !== (entity.offset || 0)) {
-				rs.push({
-					type: 'text',
-					text: text.substring(now, entity.offset)
-				} as Text)
-				now = entity.offset || 0
+		for (let i = 0; i < entities.length; i++) {
+			const entity = {
+				entity: [entities[i].entity],
+				offset: entities[i].offset,
+				length: entities[i].length
 			}
-			let e = entity.entity
-			if (e.type === "mentioned_robot" && e.bot_id !== this.c.config.bot_id) {
-				rs.push({
-					type: 'at',
-					id: e.bot_id,
-					scope: 'bot',
-					nickname: text.substr((entity?.offset || 0) + 1, entity.length - 2)
-				} as At)
-			} else if (e.type === "mentioned_user") {
-				rs.push({
-					type: 'at',
-					id: e.user_id,
-					scope: 'user',
-					nickname: text.substr((entity?.offset || 0) + 1, entity.length - 2)
-				} as At)
-			} else if (e.type === "mentioned_all") {
-				rs.push({
-					type: 'at',
-					scope: 'all'
-				} as At)
+			while (entities[i]?.offset === entities[i + 1]?.offset && entities[i]?.length === entities[i + 1]?.length) {
+				entity.entity.push(entities[i + 1].entity)
+				i++
+			}
+			let elem: any = {}
+			for (let e of entity.entity) {
+				if (now !== (entity.offset || 0)) {
+					rs.push({
+						...elem, ...{
+							type: 'text',
+							text: text.substring(now, entity.offset)
+						} as Text
+					})
+					now = entity.offset || 0
+				}
+				if (e.type === "mentioned_robot") {
+					if (e.bot_id === this.c.config.bot_id) {
+						elem = undefined
+						continue
+					}
+					elem = {
+						...elem, ...{
+							type: 'at',
+							id: e.bot_id,
+							scope: 'bot',
+							nickname: text.substr((entity?.offset || 0) + 1, entity.length - 2)
+						} as At
+					}
+				} else if (e.type === "mentioned_user") {
+					elem = {
+						...elem, ...{
+							type: 'at',
+							id: e.user_id,
+							scope: 'user',
+							nickname: text.substr((entity?.offset || 0) + 1, entity.length - 2)
+						} as At
+					}
+				} else if (e.type === "mentioned_all") {
+					elem = {
+						...elem, ...{
+							type: 'at',
+							scope: 'all'
+						} as At
+					}
+				} else if (e.type === 'villa_room_link') {
+					elem = {
+						...elem, ...{
+							type: 'rlink',
+							vid: e.villa_id,
+							rid: e.room_id,
+							name: text.substr((entity?.offset || 0) + 1, entity.length - 2)
+						} as LinkRoom
+					}
+				} else if (e.type === 'link') {
+					elem = {
+						...elem, ...{
+							type: 'link',
+							url: e.url,
+							name: text.substr(entity.offset, entity.length),
+							ac_tk: e.requires_bot_access_token
+						} as Link
+					}
+				} else if (e.type === 'style') {
+					if (e.font_style === "bold") {
+						//@ts-ignore
+						elem.style = (elem.style || "") + "b"
+					} else if (e.font_style === 'italic') {
+						//@ts-ignore
+						elem.style = (elem.style || "") + "i"
+					} else if (e.font_style === 'strikethrough') {
+						//@ts-ignore
+						elem.style = (elem.style || "") + "s"
+					} else if (e.font_style === 'underline') {
+						//@ts-ignore
+						elem.style = (elem.style || "") + "u"
+					}
+				}
+			}
+			if (elem) {
+				if (!elem.type) {
+					elem = {
+						...elem, ...{
+							type: 'text',
+							text: text.substr(entity.offset, entity.length)
+						} as Text
+					}
+				}
+				rs.push(elem)
 			}
 			now += entity.length
 		}
@@ -194,6 +262,48 @@ export default class Parser {
 			type: 'text',
 			text: text.substr(now)
 		})
+		if (images) {
+			rs.push({
+				type: 'image',
+				file: images.url,
+				width: images?.size?.width,
+				height: images?.size?.height,
+				size: images?.file_size
+			} as Image)
+		}
+
+		/** 解析Panel */
+		if (!panel) return rs
+		if (panel.template_id) rs.push({
+			type: 'template',
+			id: panel.template_id
+		} as Template)
+		const gl = panel.group_list
+		if(!gl) return rs
+		for (let row of gl) {
+			let size = ""
+			if (row.length === 1) size = 'big'
+			else if (row.length === 2) size = 'middle'
+			else if (row.length === 3) size = 'small'
+			for (let c of row) {
+				switch (c.type) {
+					case 1:
+						rs.push({
+							type: 'button',
+							size: size,
+							id: c.id,
+							text: c.text,
+							cb: c.need_callback,
+							extra: c.extra,
+							c_type: CType[c.c_type],
+							input: c.input,
+							link: c.link,
+							token: c.need_token
+						} as Button)
+						break
+				}
+			}
+		}
 		return rs
 	}
 }

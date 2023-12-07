@@ -7,6 +7,7 @@ export const UintSize = 32 << (~0 >>> 63)
 export const _W = UintSize - 1
 export const _MASK = BigInt((1n << BigInt(_W)) - 1n)
 export const BUF0 = Buffer.alloc(0)
+export const OS_TYPE = os.type()
 export const TMP_PATH = os.tmpdir()
 
 /** DX 寄存器 */
@@ -211,6 +212,24 @@ export function Encode(str: string): string {
 		}
 	}
 	return t.toString()
+}
+
+/** 获取本机的IP地址 */
+export function localIP(): string | undefined {
+	const ifaces = os.networkInterfaces();
+	if (OS_TYPE === 'Windows_NT') {
+		for (let i in ifaces) {
+			if (i === '本地连接' || i === '以太网' || i === 'WLAN') {
+				//@ts-ignore
+				for (let j of ifaces[i]) {
+					if (j.family === "IPv4") return j.address
+				}
+			}
+		}
+	} else if (OS_TYPE === "Linux") {
+		//@ts-ignore
+		return ifaces?.eth0[0]?.address
+	}
 }
 
 function shouldEscape(s: string): boolean {

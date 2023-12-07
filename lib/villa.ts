@@ -1,7 +1,5 @@
 import {Serve, ServeRunTimeError} from "./serve";
 import {Color, MemberInfo, C, MemberRole} from "./user";
-import {Component} from "./message";
-import {Button} from "./element";
 
 const VillaMap = new WeakMap<VillaInfo, Villa>()
 
@@ -40,18 +38,13 @@ export class Villa {
 		return _info
 	}
 
-	info() {
+	/** 获取大别野信息 */
+	async getInfo() {
 		return this._info
 	}
 
-	/** 获取大别野信息 */
-	async getVillaInfo() {
-		const path = "/vila/api/bot/platform/getVilla"
-		return (await this.c.fetchResult(this.vid, path, 'get', "")).villa
-	}
-
 	/** 获取大别野成员列表 */
-	async getVillaMembers(size: number, offset_str: string = "") {
+	async getMembers(size: number, offset_str: string = "") {
 		const path = "/vila/api/bot/platform/getVillaMembers"
 		return await this.c.fetchResult(this.vid, path, 'get', `?offset_str=${offset_str}&size=${size}`)
 	}
@@ -59,27 +52,31 @@ export class Villa {
 	/** 提出大别野用户 */
 	async kickUser(uid: number) {
 		const path = "/vila/api/bot/platform/deleteVillaMember"
-		return await this.c.fetchResult(this.vid, path, "post", "", {uid: uid})
+		await this.c.fetchResult(this.vid, path, "post", "", {uid: uid})
+		this.ml.delete(uid)
+		return true
 	}
 
 	/** 获取别野用户信息 */
-	async getMemberInfo(uid: number): Promise<MemberInfo | undefined> {
-		if (this.ml.has(uid)) return this.ml.get(uid)
-		const path = "/vila/api/bot/platform/getMember"
-		const member = (await this.c.fetchResult(this.vid, path, 'get', `?uid=${uid}`)).member
-		if (member) this.ml.set(uid, member)
-		return member
+	async getMemberInfo(uid: number, force: boolean = false): Promise<MemberInfo | undefined> {
+		if (force || !this.ml.has(uid)) {
+			const path = "/vila/api/bot/platform/getMember"
+			const member = (await this.c.fetchResult(this.vid, path, 'get', `?uid=${uid}`)).member
+			if (member) this.ml.set(uid, member)
+		}
+		return this.ml.get(uid)
 	}
 
 	/** 获取房间信息 */
-	async getRoom(room_id: number) {
-		if (this.rl.has(room_id)) return this.rl.get(room_id)
-		await this.getVillaRoomList(true)
+	async getRoom(room_id: number, force: boolean = false) {
+		if (force || !this.rl.has(room_id)) {
+			await this.getRooms(true)
+		}
 		return this.rl.get(room_id)
 	}
 
 	/** 获取别野房间列表信息 */
-	async getVillaRoomList(force: boolean = false) {
+	async getRooms(force: boolean = false) {
 		if (force || this.rl.size == 0) {
 			this.gl.clear()
 			this.rl.clear()
@@ -132,9 +129,7 @@ export class Villa {
 			group_id: group_id,
 			group_name: group_name
 		})
-		if (this.gl.has(group_id)) {
-			this.gl.set(group_id, group_name)
-		}
+		this.gl.set(group_id, group_name)
 		return true
 	}
 
@@ -148,7 +143,7 @@ export class Villa {
 	}
 
 	/** 获取分组列表 */
-	async getGroupList(force = false) {
+	async getGroups(force = false) {
 		if (force || this.gl.size == 0) {
 			this.gl.clear()
 			const gs = (await this.c.fetchResult(this.vid, "/vila/api/bot/platform/getGroupList", "get", "")).list
@@ -193,7 +188,7 @@ export class Villa {
 	async getRole(role_id: number, detail: boolean = true) {
 		if (this.roles.has(role_id)) {
 			const role = this.roles.get(role_id)
-			if (role && role.is_detail) return role
+			if (role && (role.is_detail || !detail)) return role
 		}
 		const rs = (await this.c.fetchResult(this.vid, "/vila/api/bot/platform/getMemberRoleInfo", "get", `?role_id=${role_id}`)).role
 		rs.is_detail = true
@@ -202,7 +197,7 @@ export class Villa {
 	}
 
 	/** 获取大别野所有身份组 */
-	async getVillaRoles(force: boolean = false) {
+	async getRoles(force: boolean = false) {
 		if (force || this.roles.size == 0) {
 			this.roles.clear()
 			const rs = (await this.c.fetchResult(this.vid, "/vila/api/bot/platform/getVillaMemberRoles", "get", "")).list
