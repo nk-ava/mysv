@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import stream from "stream";
-import {ServeRunTimeError} from "./serve";
+import {RobotRunTimeError} from "./bot";
 import * as os from "os";
 
 export const UintSize = 32 << (~0 >>> 63)
@@ -66,7 +66,7 @@ export function Uint64(n: bigint): bigint {
 
 /** bits.Sub */
 export function bitsSub(a: bigint, b: bigint, borrow: bigint) {
-	if (UintSize === 32) throw new ServeRunTimeError(-7, "暂不支持32位系统")
+	if (UintSize === 32) throw new RobotRunTimeError(-7, "暂不支持32位系统")
 	const d64 = Uint64(a - b - borrow)
 	const b64 = ((~a & b) | (~(a ^ b) & d64)) >> 63n
 	return [d64, b64]

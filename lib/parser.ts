@@ -9,34 +9,44 @@ import {
 	ClickMsgComponent
 } from "./event";
 import {MessageRet} from "./event/baseEvent";
-import {Quotable, Serve} from "./serve";
+import {Quotable, Bot} from "./bot";
 import {Villa, VillaInfo} from "./villa";
 import {At, Button, CType, Elem, Image, Link, LinkRoom, Template, Text} from "./element";
 import {Entity} from "./message";
 import {User} from "./event/cbEvents";
 
 export type Events = JoinVilla | SendMessage | CreateBot | DeleteBot | AddQuickEmoticon | AuditCallback
-const et: string[] = ['', 'joinVilla', 'sendMessage', 'createRobot', 'deleteRobot', 'addQuickEmoticon', 'auditCallback', "clickMsgComponent"]
+
+const et: string[] = [
+	'',
+	'JoinVilla',
+	'SendMessage',
+	'CreateRobot',
+	'DeleteRobot',
+	'AddQuickEmoticon',
+	'AuditCallback',
+	"ClickMsgComponent"
+]
 
 export default class Parser {
 	public event_type: string
 	private readonly baseEvent: BaseEvent
 	private readonly event_data: any
-	private readonly c: Serve
+	private readonly c: Bot
 
-	constructor(c: Serve, event: any) {
+	constructor(c: Bot, event: any) {
 		this.c = c
-		this.event_type = et[event.type]
+		this.event_type = et[event.type] || event.type
 		this.baseEvent = {
 			source: {
-				villa_id: event.robot.villa_id,
+				villa_id: Number(event.robot.villa_id),
 				bot: event.robot.template
 			},
 			id: event.id,
-			created_time: event.created_at,
-			send_time: event.send_at
+			created_time: Number(event.created_at),
+			send_time: Number(event.send_at)
 		}
-		this.event_data = event.extend_data.EventData
+		this.event_data = event?.extend_data?.EventData || event?.extend_data
 	}
 
 	async doParse(): Promise<Array<Events>> {
@@ -47,34 +57,43 @@ export default class Parser {
 		for (let [k, v] of es) {
 			switch (k) {
 				case "JoinVilla":
+				case "join_villa":
 					rs.push({
 						...this.baseEvent,
-						join_uid: v.join_uid,
+						join_uid: Number(v.join_uid),
 						join_nickname: v.join_user_nickname,
-						join_time: v.join_at
+						join_time: Number(v.join_at)
 					} as JoinVilla)
 					this.c.logger.info(`用户 ${v.join_nickname}(${v.join_uid})加入大别野[${info.name || "unknown"}](${this.baseEvent.source.villa_id})`)
 					break
 				case "SendMessage":
+				case "send_message":
 					const content = JSON.parse(v.content)
 					const msg = content.content.text.replace(`@${this.baseEvent.source.bot.name} `, "")
 					rs.push({
 						...this.baseEvent,
 						message: this.parseContent(content.content, content.panel),
-						user: content.user as User,
+						user: {
+							...content.user,
+							id: Number(content.user.id)
+						} as User,
 						msg: msg,
-						from_uid: v.from_user_id,
-						send_time: v.send_at,
-						room_id: v.room_id,
+						from_uid: Number(v.from_user_id),
+						send_time: Number(v.send_at),
+						room_id: Number(v.room_id),
 						object_name: v.object_name,
 						nickname: v.nickname,
 						msg_id: v.msg_uid,
 						bot_msg_id: v.bot_msg_id,
-						quote_msg: v.quote_msg,
+						quote_msg: v.quote_msg ? {
+							...v.quote_msg,
+							send_at: Number(v?.quote_msg?.send_at) || undefined,
+							from_user_id: Number(v?.quote_msg?.from_user_id) || undefined
+						} : undefined,
 						reply: (content: Elem | Elem[], quote: boolean = false): Promise<MessageRet> => {
 							const q: Quotable = {
 								message_id: v.msg_uid,
-								send_time: v.send_at
+								send_time: Number(v.send_at)
 							}
 							return this.c.sendMsg(v.room_id, this.baseEvent.source.villa_id, content, quote ? q : undefined)
 						}
@@ -82,12 +101,14 @@ export default class Parser {
 					this.c.logger.info(`recv from: [Villa: ${info.name || "unknown"}(${this.baseEvent.source.villa_id}), Member: ${v.nickname}(${v.from_user_id})] ${msg}`)
 					break
 				case "CreateRobot":
+				case "create_robot":
 					rs.push({
 						...this.baseEvent
 					})
 					this.c.logger.info(`机器人 ${this.baseEvent.source.bot.name}(${this.baseEvent.source.bot.id})加入大别野[${info.name || "unknown"}](${this.baseEvent.source.villa_id})`)
 					break
 				case "DeleteRobot":
+				case "delete_robot":
 					rs.push({
 						...this.baseEvent
 					})
@@ -95,52 +116,51 @@ export default class Parser {
 					this.c.vl.delete(this.baseEvent.source.villa_id)
 					break
 				case "AddQuickEmoticon":
+				case "add_quick_emoticon":
 					rs.push({
 						...this.baseEvent,
-						room_id: v.room_id,
-						from_uid: v.uid,
-						emoticon_id: v.emoticon_id,
+						room_id: Number(v.room_id),
+						from_uid: Number(v.uid),
+						emoticon_id: Number(v.emoticon_id),
 						emoticon: v.emoticon,
 						msg_id: v.msg_uid,
 						bot_msg_id: v.bot_msg_id,
 						is_cancel: v.is_cancel,
-						reply: (content: Elem | Elem[], quote: boolean = false): Promise<MessageRet> => {
-							const q: Quotable = {
-								message_id: v.msg_uid,
-								send_time: v.send_at
-							}
-							return this.c.sendMsg(v.room_id, this.baseEvent.source.villa_id, content, quote ? q : undefined)
+						reply: (content: Elem | Elem[]): Promise<MessageRet> => {
+							return this.c.sendMsg(v.room_id, this.baseEvent.source.villa_id, content)
 						}
 					} as AddQuickEmoticon)
 					const member = await (await Villa.get(this.c, this.baseEvent.source.villa_id))?.getMemberInfo(v.uid)
-					this.c.logger.info(`recv from: [Villa: ${info.name || "unknown"}(${this.baseEvent.source.villa_id}), Member: ${member?.basic?.nickname || "unknown"}(${v.uid})] [回复快捷表情]${v.emoticon}`)
+					this.c.logger.info(`recv from: [Villa: ${info.name || "unknown"}(${this.baseEvent.source.villa_id}), Member: ${member?.basic?.nickname || "unknown"}(${v.uid})] [${v.is_cancel ? '取消' : '回复'}快捷表情]${v.emoticon}`)
 					break
 				case "AuditCallback":
+				case "audit_callback":
 					rs.push({
 						...this.baseEvent,
 						audit_id: v.audit_id,
 						bot_id: v.bot_tpl_id,
-						room_id: v.room_id,
-						user_id: v.user_id,
+						room_id: Number(v.room_id),
+						user_id: Number(v.user_id),
 						pass_through: v.pass_through,
-						audit_result: v.audit_result,
-						reply: (content: Elem | Elem[], quote: boolean = false): Promise<MessageRet> => {
+						audit_result: Number(v.audit_result),
+						reply: (content: Elem | Elem[]): Promise<MessageRet> => {
 							return this.c.sendMsg(v.room_id, this.baseEvent.source.villa_id, content)
 						}
 					} as AuditCallback)
 					this.c.logger.info(`${v.audit_id}审核结果：${v.audit_result}`)
 					break
 				case "ClickMsgComponent":
+				case "click_msg_component":
 					rs.push({
 						...this.baseEvent,
-						room_id: v.room_id,
-						uid: v.uid,
+						room_id: Number(v.room_id),
+						uid: Number(v.uid),
 						msg_id: v.msg_uid,
 						bot_msg_id: v.bot_msg_id,
 						component_id: v.component_id,
 						template_id: v.template_id || 0,
 						extra: v.extra,
-						reply: (content: Elem | Elem[], quote: boolean = false): Promise<MessageRet> => {
+						reply: (content: Elem | Elem[]): Promise<MessageRet> => {
 							return this.c.sendMsg(v.room_id, this.baseEvent.source.villa_id, content)
 						}
 					} as ClickMsgComponent)
@@ -279,7 +299,7 @@ export default class Parser {
 			id: panel.template_id
 		} as Template)
 		const gl = panel.group_list
-		if(!gl) return rs
+		if (!gl) return rs
 		for (let row of gl) {
 			let size = ""
 			if (row.length === 1) size = 'big'

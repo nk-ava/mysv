@@ -22,16 +22,18 @@ const {createServe} = require("mysv")
 const app = createServe({
     bot_id: 'bot_id',
     secret: 'secret',
+    ws: true,// 为true则优先ws
+    villa_id: 0, //若机器人还没上线就要填测试别野id，否则无法使用ws
     pub_key: '-----BEGIN PUBLIC KEY-----\n' +
-        '-----END PUBLIC KEY-----',
-    callback_path: "/events"
+        '-----END PUBLIC KEY-----',// ws为true可以不配
+    callback_path: "/events"// ws为true可以不配
 })
 
 app.on("online", async () => {
     app.logger.info("上线成功！！！")
 })
 
-app.on("sendMessage", async (e) => {
+app.on("SendMessage", async (e) => {
     // 事件处理
 })
 
@@ -46,13 +48,13 @@ process.on("unhandledRejection", error => {
 |    Event        |      Description      |
 |-----------------|-----------------------|
 |online|启动成功|
-|joinVilla|新成员加入别野|
-|sendMessage|发送消息|
-|createRobot|机器人被加入别野|
-|deleteRobot|机器人被移出别野|
-|auditCallback|审核回调|
-|addQuickEmoticon|用户快捷表情回复|
-|clickMsgComponent|点击组件事件|
+|JoinVilla|新成员加入别野|
+|SendMessage|发送消息|
+|CreateRobot|机器人被加入别野|
+|DeleteRobot|机器人被移出别野|
+|AuditCallback|审核回调|
+|AddQuickEmoticon|用户快捷表情回复|
+|ClickMsgComponent|点击组件事件|
 
 ##### 其它
 

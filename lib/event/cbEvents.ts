@@ -49,6 +49,9 @@ export interface SendMessage extends BaseEvent {
 	bot_msg_id: string
 	/** 回调消息引用消息的基础信息 */
 	quote_msg?: QuoteMsg
+
+	/** 回复消息 */
+	reply: (content: any, quote?: boolean) => Promise<MessageRet>
 }
 
 export interface QuoteMsg {
@@ -95,11 +98,14 @@ export interface AddQuickEmoticon extends BaseEvent {
 	bot_msg_id: string
 	/** 是否是取消表情 */
 	is_cancel: boolean
+
+	/** 回复消息 */
+	reply: (content: any) => Promise<MessageRet>
 }
 
 export interface AuditCallback extends BaseEvent {
 	/** 审核事件 id */
-	audit_id: number
+	audit_id: string
 	/** 机器人 id */
 	bot_id: string
 	/** 房间 id（和审核接口调用方传入的值一致） */
@@ -110,6 +116,9 @@ export interface AuditCallback extends BaseEvent {
 	pass_through: string
 	/** 审核结果，0作兼容，1审核通过，2审核驳回 */
 	audit_result: number
+
+	/** 回复消息 */
+	reply: (content: any) => Promise<MessageRet>
 }
 
 /** 组件点击事件 */
@@ -128,4 +137,7 @@ export interface ClickMsgComponent extends BaseEvent {
 	template_id: number
 	/** 机器人自定义透传信息 */
 	extra: string
+
+	/** 回复消息 */
+	reply: (content: any) => Promise<MessageRet>
 }

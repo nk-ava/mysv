@@ -4,7 +4,7 @@
 import {PassThrough} from "stream";
 import {Modules, Nat} from "./nat";
 import {_MASK, _W, Uint64, ctEq, ctSelect, ConstantTimeByteEq, ConstantTimeCompare} from "../common";
-import {ServeRunTimeError} from "../serve";
+import {RobotRunTimeError} from "../bot";
 import crypto from "crypto";
 
 const prefix = [0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20]
@@ -18,10 +18,10 @@ export function verifyPKCS1v15(pub: crypto.JsonWebKey, hashed: Buffer, signature
 	}
 	const k = pKey.n.length
 	if (k < tLen + 11) {
-		throw new ServeRunTimeError(-8, "pkcs1v15 verify signature error")
+		throw new RobotRunTimeError(-8, "pkcs1v15 verify signature error")
 	}
 	if (k !== signature.length) {
-		throw new ServeRunTimeError(-8, "pkcs1v15 verify signature error")
+		throw new RobotRunTimeError(-8, "pkcs1v15 verify signature error")
 	}
 	const em = encrypt(pKey, signature)
 	let ok = ConstantTimeByteEq(em[0], 0)

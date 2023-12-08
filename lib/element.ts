@@ -10,7 +10,7 @@ import {
 	MentionedInfo, MsgContent,
 	MsgContentInfo, Panel
 } from "./message";
-import {Serve} from "./serve";
+import {Bot} from "./bot";
 import {Villa} from "./villa";
 
 export interface Text {
@@ -93,14 +93,14 @@ export class Msg {
 	private origin: Array<any> | undefined
 	private offset: number
 	private obj_name: string
-	private c: Serve
+	private c: Bot
 	private smallComponent: Component[]
 	private midComponent: Component[]
 
-	constructor(c: Serve, villa_id: number)
-	constructor(c: Serve, villa_id: number, o: Elem[])
+	constructor(c: Bot, villa_id: number)
+	constructor(c: Bot, villa_id: number, o: Elem[])
 
-	constructor(c: Serve, villa_id: number, o?: Elem[]) {
+	constructor(c: Bot, villa_id: number, o?: Elem[]) {
 		if (o) this.origin = o
 		this.c = c
 		this.entities = new Array<Entity>()
@@ -127,7 +127,7 @@ export class Msg {
 			try {// @ts-ignore
 				await this[m.type](m)
 			} catch (e) {
-				throw e
+				this.c.logger.error(`消息{type: ${m.type}}转换失败：${(e as Error).message}`)
 			}
 		}
 		return this
@@ -155,7 +155,7 @@ export class Msg {
 		if (this.smallComponent.length) this.panel.small_component_group_list?.push(this.smallComponent)
 		if (this.midComponent.length) this.panel.mid_component_group_list?.push(this.midComponent)
 		return {
-			message: tmg, obj_name: this.obj_name, panel: this.panel, brief: this.brief
+			message: tmg, obj_name: this.obj_name, panel: this.panel, brief: this.brief, imgMsg: !!this.img
 		}
 	}
 
@@ -169,7 +169,10 @@ export class Msg {
 	}
 
 	private async at(m: At) {
-		if (!m.scope) m.scope = 'user'
+		if (!m.scope) {
+			if (String(m?.id)?.startsWith('bot')) m.scope = 'bot'
+			else m.scope = 'user'
+		}
 		let len: number
 		switch (m.scope) {
 			case "user":

@@ -1,11 +1,8 @@
 import * as log4js from "log4js";
 import crypto from "crypto";
 import axios from "axios";
-import {Encode, localIP, lock, md5Stream, TMP_PATH} from "./common"
-import express, {Application} from "express";
+import {Encode, lock, md5Stream, TMP_PATH} from "./common"
 import EventEmitter from "node:events";
-import Parser, {Events} from "./parser"
-import bodyParse from "body-parser";
 import {verifyPKCS1v15} from "./verify";
 import {
 	AddQuickEmoticon,
@@ -25,10 +22,12 @@ import fs from "fs";
 import {Elem, Msg} from "./element";
 import {Perm, Villa, VillaInfo} from "./villa";
 import {Readable} from "node:stream";
+import {WsClient} from "./ws";
+import {HttpClient} from "./http";
 
 const pkg = require("../package.json")
 
-export class ServeRunTimeError {
+export class RobotRunTimeError {
 	constructor(public code: number, public message: string = "unknown") {
 		this.code = code
 		this.message = message
@@ -42,7 +41,7 @@ export interface Quotable {
 	send_time: number
 }
 
-export interface Serve {
+export interface Bot {
 	logger: log4js.Logger
 	config: Config
 	mhyHost: string
@@ -51,25 +50,25 @@ export interface Serve {
 	on(name: 'online', listener: (this: this) => void): this
 
 	/** 新成员加入 */
-	on(name: 'joinVilla', listener: (this: this, e: JoinVilla) => void): this
+	on(name: 'JoinVilla', listener: (this: this, e: JoinVilla) => void): this
 
 	/** 用户at发送消息 */
-	on(name: 'sendMessage', listener: (this: this, e: SendMessage) => void): this
+	on(name: 'SendMessage', listener: (this: this, e: SendMessage) => void): this
 
 	/** 新增机器人 */
-	on(name: 'createRobot', listener: (this: this, e: CreateBot) => void): this
+	on(name: 'CreateRobot', listener: (this: this, e: CreateBot) => void): this
 
 	/** 移除机器人 */
-	on(name: 'deleteRobot', listener: (this: this, e: DeleteBot) => void): this
+	on(name: 'DeleteRobot', listener: (this: this, e: DeleteBot) => void): this
 
 	/** 审核回调 */
-	on(name: 'auditCallback', listener: (this: this, e: AuditCallback) => void): this
+	on(name: 'AuditCallback', listener: (this: this, e: AuditCallback) => void): this
 
 	/** 机器人发送的消息表情快捷回复 */
-	on(name: 'addQuickEmoticon', listener: (this: this, e: AddQuickEmoticon) => void): this
+	on(name: 'AddQuickEmoticon', listener: (this: this, e: AddQuickEmoticon) => void): this
 
 	/** 点击消息组件事件 */
-	on(name: 'clickMsgComponent', listener: (this: this, e: ClickMsgComponent) => void): this
+	on(name: 'ClickMsgComponent', listener: (this: this, e: ClickMsgComponent) => void): this
 }
 
 export type LogLevel = 'all' | 'mark' | 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'off'
@@ -90,6 +89,12 @@ export interface Config {
 	/** 启动的主机地址，默认为本机ip */
 	host?: string
 
+	/** 是否通过WS建连,若ws为true，则优先使用ws，不用再配置回调地址路径 */
+	ws: boolean
+
+	/** 测试别野id，如果机器人未上线，则需要填入测试别野id，否则无法使用ws */
+	villa_id?: number
+
 	/**
 	 * 米游社上传图片需要ck，因为不是调用的官方开发api，后续补上官方开发api
 	 * 如果配置了mys_ck会优先使用ck进行图片上传，不配置就走官方接口
@@ -103,70 +108,87 @@ export interface Config {
 	is_verify?: boolean
 }
 
-export class Serve extends EventEmitter {
-	private readonly port: number
-	private readonly host: string
-	private readonly application: Application
+export class Bot extends EventEmitter {
 	private readonly pubKey: crypto.KeyObject
 	private readonly enSecret: string
 	private readonly jwkKey: crypto.JsonWebKey
-	private readonly state = {
-		start_time: Date.now()
+	private statistics = {
+		start_time: Date.now(),
+		send_msg_cnt: 0,
+		send_img_cnt: 0,
+		recv_event_cnt: 0,
+		pkt_lost_cnt: 0,
+		pkt_send_cnt: 0
 	}
 
 	readonly vl = new Map<number, VillaInfo>()
+	private client: HttpClient | WsClient | undefined;
+	private keepAlive: boolean
 
 	constructor(props: Config) {
 		super();
 		this.config = {
 			level: 'info',
-			port: 8081,
-			host: localIP(),
 			is_verify: true,
+			villa_id: 0,
 			...props
 		}
 		this.mhyHost = "https://bbs-api.miyoushe.com"
-		this.application = express()
-		this.host = this.config.host || 'localhost'
-		this.port = this.config.port || 8081
 		this.pubKey = crypto.createPublicKey(props.pub_key)
 		this.jwkKey = this.pubKey.export({format: "jwk"})
 		this.enSecret = this.encryptSecret()
 		this.logger = log4js.getLogger(`[BOT_ID:${this.config.bot_id}]`)
 		this.logger.level = this.config.level as LogLevel
-		this.configApplication()
-		this.startServe()
+		this.keepAlive = true
+		this.printPkgInfo()
+		this.run().then(() => this.emit("online"))
 
 		lock(this, "enSecret")
 		lock(this, "config")
 	}
 
-	/** 配置application */
-	configApplication() {
-		/** 解析json */
-		this.application.use(bodyParse.json())
-		this.application.use(express.urlencoded({extended: true}))
-		/** 解决跨域 */
-		this.application.all("*", (req, res, next) => {
-			res.header("Access-Control-Allow-Origin", "*")
-			res.header("Access-Control-Allow-Headers", "Content-Type")
-			res.header("Access-Control-Allow-Method", "*")
-			res.header("Content-Type", "application/json; charset=utf-8")
-			next()
+	get stat() {
+		return this.statistics
+	}
+
+	private run() {
+		return new Promise(resolve => {
+			if (this.config.ws) {
+				this.newWsClient(resolve).then()
+			} else {
+				this.client = new HttpClient(this, this.config, resolve)
+			}
 		})
 	}
 
-	/** 启动服务 */
-	private startServe(): any {
-		this.application.listen(this.port, this.host, () => {
-			this.logger.mark("---------------")
-			this.logger.mark(`Package Version: ${pkg.name}@${pkg.version} (Released on ${pkg.update})`)
-			this.logger.mark(`Repository Url: ${pkg.repository}`)
-			this.logger.mark("---------------")
-			this.logger.info(`服务已成功启动，服务地址：http://${this.host}:${this.port}`)
-			this.watchPath()
-			this.emit("online")
-		})
+	setKeepAlive(k: boolean) {
+		this.keepAlive = k
+	}
+
+	private async newWsClient(cb: Function) {
+		try {
+			this.client = await WsClient.new(this, cb)
+			this.client.on("close", async (code, reason) => {
+				(this.client as WsClient).destroy()
+				if (!this.keepAlive) return
+				this.logger.error(`连接已断开，reason ${reason.toString() || 'unknown'}(${code})，5秒后将自动重连...`)
+				setTimeout(async () => {
+					await this.newWsClient(() => {
+					})
+				}, 5000)
+			})
+		} catch (err) {
+			this.logger.error(`建立连接失败，请稍后重试...`)
+			throw new RobotRunTimeError(-11, (err as Error).message)
+		}
+	}
+
+	/** 输出包信息 */
+	private printPkgInfo() {
+		this.logger.mark("---------------")
+		this.logger.mark(`Package Version: ${pkg.name}@${pkg.version} (Released on ${pkg.update})`)
+		this.logger.mark(`Repository Url: ${pkg.repository}`)
+		this.logger.mark("---------------")
 	}
 
 	/** 加密secret */
@@ -330,7 +352,7 @@ export class Serve extends EventEmitter {
 
 	/** 图片转存，只能转存有网络地址的图片，上传图片请配置mys_ck调用上传接口 */
 	async transferImage(url: string, villa_id?: number) {
-		if (!villa_id) throw new ServeRunTimeError(-1, '图片转存缺少参数villa_id')
+		if (!villa_id) throw new RobotRunTimeError(-1, '图片转存缺少参数villa_id')
 		return (await this.fetchResult(villa_id, "/vila/api/bot/platform/transferImage", "post", "", {
 			url: url
 		})).new_url
@@ -350,7 +372,7 @@ export class Serve extends EventEmitter {
 
 	/** 发送消息 */
 	async sendMsg(room_id: number, villa_id: number, content: Elem | Elem[], quote?: Quotable): Promise<MessageRet> {
-		const {message, obj_name, panel, brief} = await this._convert(content, villa_id)
+		const {message, obj_name, panel, brief, imgMsg} = await this._convert(content, villa_id)
 		if (quote) {
 			message.quote = {
 				quoted_message_id: quote.message_id,
@@ -376,36 +398,17 @@ export class Serve extends EventEmitter {
 			}
 		})
 		const r = data.data
-		if (!r) throw new ServeRunTimeError(-8, `消息发送失败：${data.message}`)
+		if (!r) throw new RobotRunTimeError(-8, `消息发送失败：${data.message}`)
 		const villa = await Villa.getInfo(this, villa_id)
 		this.logger.info(`succeed to send: [Villa: ${villa?.name || "unknown"}](${villa_id})] ${brief}`)
+		this.statistics.send_msg_cnt++
+		if (imgMsg) this.statistics.send_img_cnt++
 		return r
 	}
 
-	private async _convert(msg: Elem | Elem[], villa_id: number): Promise<{ message: MsgContentInfo, obj_name: string | undefined, panel: Panel, brief: string }> {
+	private async _convert(msg: Elem | Elem[], villa_id: number): Promise<{ message: MsgContentInfo, obj_name: string | undefined, panel: Panel, brief: string, imgMsg: boolean }> {
 		if (!Array.isArray(msg)) msg = [msg]
 		return (await new Msg(this, villa_id).parse(msg)).gen();
-	}
-
-	private watchPath() {
-		if (!this.config.callback_path) throw new ServeRunTimeError(-6, "未配置回调地址路径")
-		let pathname = this.config.callback_path
-		if (!pathname.startsWith("/")) pathname = "/" + pathname
-		this.logger.debug(`开始监听回调路径：${pathname}`)
-		this.application.post(pathname, async (req, res) => {
-			const event = req.body
-			if (this.verifySign(event, req.header("x-rpc-bot_sign") || "")) {
-				const parser = new Parser(this, event.event)
-				const events: Array<Events> = await parser.doParse();
-				for (let e of events) {
-					this.emit(parser.event_type, e)
-				}
-			}
-			res.status(200)
-			res.setHeader("Content-Type", "application/json")
-			res.send({"message": "", "retcode": 0})
-			res.end()
-		})
 	}
 
 	async fetchResult(villa_id: number, path: string, method: string, query: string, body: any = undefined) {
@@ -423,7 +426,7 @@ export class Serve extends EventEmitter {
 			})
 		this.logger.debug(`axios请求参数：{host: ${this.mhyHost}${path}${query}, method: ${method}, body: ${JSON.stringify(body)}}`)
 		const r = data.data
-		if (!r) throw new ServeRunTimeError(-7, `${path}返回错误：${data.message}`)
+		if (!r) throw new RobotRunTimeError(-7, `${path}返回错误：${data.message}`)
 		return r
 	}
 
@@ -458,16 +461,16 @@ export class Serve extends EventEmitter {
 			const ext = file.match(/\.\w+$/)?.[0]?.slice(1)
 			if (this.config.mys_ck) var {message, data} = await this._uploadImageWithCk(readable, ext)
 			else var {message, data} = await this._uploadImageApi(readable, ext, villa_id)
-			if (!data) throw new ServeRunTimeError(-4, message)
+			if (!data) throw new RobotRunTimeError(-4, message)
 			return data.url
 		} catch (e: any) {
-			throw new ServeRunTimeError(e.code || -5, e.message)
+			throw new RobotRunTimeError(e.code || -5, e.message)
 		}
 	}
 
 	private async _uploadImageWithCk(readable: stream.Readable, e: string | undefined): Promise<{ recode: number, message: string, data: any }> {
-		if (!this.config.mys_ck) throw new ServeRunTimeError(-3, "未配置mys_ck，无法调用上传接口")
-		if (!readable.readable) throw new ServeRunTimeError(-1, "The first argument is not readable stream")
+		if (!this.config.mys_ck) throw new RobotRunTimeError(-3, "未配置mys_ck，无法调用上传接口")
+		if (!readable.readable) throw new RobotRunTimeError(-1, "The first argument is not readable stream")
 		/** 支持jpg,jpeg,png,gif,bmp **/
 		const ext = e || 'png';
 		const file = await md5Stream(readable);
@@ -497,13 +500,13 @@ export class Serve extends EventEmitter {
 	}
 
 	private async _uploadImageApi(readable: stream.Readable, e: string | undefined, villa_id?: number): Promise<{ recode: number, message: string, data: any }> {
-		if (!villa_id) throw new ServeRunTimeError(-1, '上传图片缺少参数villa_id')
+		if (!villa_id) throw new RobotRunTimeError(-1, '上传图片缺少参数villa_id')
 		const path = "/vila/api/bot/platform/getUploadImageParams"
 		const ext = e || 'png';
 		const file = await md5Stream(readable);
 		const md5 = file.md5.toString("hex");
 		const {params} = await this.fetchResult(villa_id, path, "get", `?md5=${md5}&ext=${ext}`)
-		if (!params) throw new ServeRunTimeError(-9, "上传图片获取参数失败")
+		if (!params) throw new RobotRunTimeError(-9, "上传图片获取参数失败")
 		const form = new FormData()
 		form.append("x:extra", params["callback_var"]["x:extra"])
 		form.append("OSSAccessKeyId", params.accessid)
@@ -526,5 +529,5 @@ export class Serve extends EventEmitter {
 
 /** 创建一个服务 */
 export function createServe(props: Config) {
-	return new Serve(props)
+	return new Bot(props)
 }

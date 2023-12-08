@@ -1,5 +1,5 @@
 import {UintSize, binaryToNumber, _W, _MASK, BUF0, Uint64, ctEq, montgomeryLoop, ctSelect} from "../common"
-import {ServeRunTimeError} from "../serve";
+import {RobotRunTimeError} from "../bot";
 
 export class Nat {
 	bits: Buffer
@@ -16,7 +16,7 @@ export class Nat {
 		const nLimbs = Math.floor((n.length * 8 + UintSize - 1) / UintSize)
 		let limbs
 		if (UintSize === 64) limbs = new BigUint64Array(nLimbs)
-		else throw new ServeRunTimeError(-7, "暂不支持32位系统")
+		else throw new RobotRunTimeError(-7, "暂不支持32位系统")
 		for (let i = nLimbs - 1; i >= 0; i--) {
 			try {
 				limbs[i] = n.readBigUint64BE((nLimbs - i - 1) * 8)
@@ -94,7 +94,7 @@ export class Nat {
 				outI++
 				if (outI >= this.limbs.length) {
 					if (overflow > 0 || i > 0) {
-						throw new ServeRunTimeError(-8, "pkcs1v15 verify signature error")
+						throw new RobotRunTimeError(-8, "pkcs1v15 verify signature error")
 					}
 					break
 				}
@@ -102,7 +102,7 @@ export class Nat {
 			}
 		}
 		// x.cmpGeq(m.nat)
-		if (this.cmpGeq(m) === 1n) throw new ServeRunTimeError(-8, "pkcs1v15 verify signature error")
+		if (this.cmpGeq(m) === 1n) throw new RobotRunTimeError(-8, "pkcs1v15 verify signature error")
 		return this
 	}
 
@@ -153,7 +153,7 @@ export class Nat {
 	montgomeryMul(a: Nat, b: Nat, m: Modules): Nat {
 		this.limbs = new BigUint64Array(m.nat.limbs.length)
 		if (a.limbs.length != m.nat.limbs.length || b.limbs.length != m.nat.limbs.length) {
-			throw new ServeRunTimeError(-8, "invalid montgomeryMul input")
+			throw new RobotRunTimeError(-8, "invalid montgomeryMul input")
 		}
 		const overflow = montgomeryLoop(this.limbs, a.limbs, b.limbs, m.nat.limbs, m.m0inv)
 		const underflow = 1n ^ this.cmpGeq(m.nat)

@@ -1,4 +1,4 @@
-import {Serve, ServeRunTimeError} from "./serve";
+import {Bot, RobotRunTimeError} from "./bot";
 import {Color, MemberInfo, C, MemberRole} from "./user";
 
 const VillaMap = new WeakMap<VillaInfo, Villa>()
@@ -6,21 +6,21 @@ const VillaMap = new WeakMap<VillaInfo, Villa>()
 export class Villa {
 	private readonly vid: number;
 	private readonly _info: VillaInfo
-	private c: Serve;
+	private c: Bot;
 	private readonly ml = new Map<number, MemberInfo>()
 	private readonly rl = new Map<number, RoomInfo>()
 	private readonly gl = new Map<number, string>()
 	private readonly roles = new Map<number, MemberRole>()
 
-	private constructor(c: Serve, vid: number, info: VillaInfo) {
+	private constructor(c: Bot, vid: number, info: VillaInfo) {
 		this.c = c
 		this.vid = vid
 		this._info = info
 	}
 
-	static async get(c: Serve, vid: number) {
+	static async get(c: Bot, vid: number) {
 		const _info = await Villa.getInfo(c, vid)
-		if (!_info) throw new ServeRunTimeError(-7, '获取大别野信息失败')
+		if (!_info) throw new RobotRunTimeError(-7, '获取大别野信息失败')
 		if (VillaMap.has(_info)) return VillaMap.get(_info)
 		else {
 			let villa = new Villa(c, vid, _info)
@@ -29,7 +29,7 @@ export class Villa {
 		}
 	}
 
-	static async getInfo(c: Serve, vid: number) {
+	static async getInfo(c: Bot, vid: number) {
 		let _info = c.vl.get(vid)
 		if (!_info) {
 			_info = (await c.fetchResult(vid, "/vila/api/bot/platform/getVilla", 'get', "")).villa

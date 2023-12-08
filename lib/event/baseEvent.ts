@@ -7,9 +7,6 @@ export interface BaseEvent {
 	created_time: number
 	/** 回调时间 */
 	send_time: number
-
-	/** 回复消息 */
-	reply?: (content: any, quote?: boolean) => Promise<MessageRet>
 }
 
 export interface Source {
@@ -32,6 +29,8 @@ export interface Bot {
 	icon: string
 	/** 机器人配置的指令 */
 	command: Array<{ name: string, desc: string }>
+	/** 机器人功能配置 */
+	custom_settings: Array<{ name: string, url: string }>
 }
 
 export interface MessageRet {
