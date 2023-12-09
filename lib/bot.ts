@@ -90,7 +90,7 @@ export interface Config {
 	host?: string
 
 	/** 是否通过WS建连,若ws为true，则优先使用ws，不用再配置回调地址路径 */
-	ws: boolean
+	ws?: boolean
 
 	/** 测试别野id，如果机器人未上线，则需要填入测试别野id，否则无法使用ws */
 	villa_id?: number
@@ -102,7 +102,7 @@ export interface Config {
 	mys_ck?: string
 
 	/** 配置的回调地址路径，不用写域名 */
-	callback_path: string
+	callback_path?: string
 
 	/** 是否开启签名验证，默认开启，若验证影响性能可关闭 */
 	is_verify?: boolean
@@ -111,7 +111,7 @@ export interface Config {
 export class Bot extends EventEmitter {
 	private readonly pubKey: crypto.KeyObject
 	private readonly enSecret: string
-	private readonly jwkKey: crypto.JsonWebKey
+	private readonly jwkKey: crypto.JsonWebKey | undefined
 	private statistics = {
 		start_time: Date.now(),
 		send_msg_cnt: 0,
@@ -133,9 +133,10 @@ export class Bot extends EventEmitter {
 			villa_id: 0,
 			...props
 		}
+		if (!this.config?.pub_key?.length) throw new RobotRunTimeError(-1, '未配置公钥，请配置后重试')
 		this.mhyHost = "https://bbs-api.miyoushe.com"
 		this.pubKey = crypto.createPublicKey(props.pub_key)
-		this.jwkKey = this.pubKey.export({format: "jwk"})
+		if (!this.config.ws) this.jwkKey = this.pubKey.export({format: "jwk"})
 		this.enSecret = this.encryptSecret()
 		this.logger = log4js.getLogger(`[BOT_ID:${this.config.bot_id}]`)
 		this.logger.level = this.config.level as LogLevel
@@ -200,6 +201,7 @@ export class Bot extends EventEmitter {
 
 	/** 签名验证 */
 	verifySign(body: any, sign: string): boolean {
+		if (!this.jwkKey) throw new RobotRunTimeError(-1, '公钥配置错误，请检查后重试')
 		if (!this.config.is_verify) return true
 		if (!(body instanceof String)) {
 			body = JSON.stringify(body)

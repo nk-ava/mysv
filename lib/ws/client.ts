@@ -27,7 +27,7 @@ const HEARTBEAT = Symbol("HEARTBEAT")
 
 async function loadTypes() {
 	return new Promise((resolve, reject) => {
-		new PbJs.Root().load("./lib/ws/protobuf/proto/model.proto", {keepCase: true}, (error, root) => {
+		new PbJs.Root().load(__dirname + "/protobuf/proto/model.proto", {keepCase: true}, (error, root) => {
 			if (error) reject(new RobotRunTimeError(-11, '加载model.proto文件出错'))
 			botEventType = root?.lookupType("RobotEvent")
 			resolve(undefined)
@@ -107,7 +107,7 @@ export class WsClient extends WebSocket {
 		if (typeof payload[1] !== "undefined" && payload[1] !== 0) {
 			this.c.setKeepAlive(false)
 			this.close()
-			throw new RobotRunTimeError(-11, `登入ws服务器失败，请检查是否配置了villa_id后再重试 code: ${payload[1]}`)
+			throw new RobotRunTimeError(-11, `登入ws服务器失败，请检查villa_id是否配置正确后再重试 code: ${payload[1]}`)
 		}
 		this.startSendHeart()
 	}

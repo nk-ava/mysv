@@ -25,7 +25,7 @@ const app = createServe({
     ws: true,// 为true则优先ws
     villa_id: 0, //若机器人还没上线就要填测试别野id，否则无法使用ws
     pub_key: '-----BEGIN PUBLIC KEY-----\n' +
-        '-----END PUBLIC KEY-----',// ws为true可以不配
+        '-----END PUBLIC KEY-----',
     callback_path: "/events"// ws为true可以不配
 })
 
@@ -35,6 +35,19 @@ app.on("online", async () => {
 
 app.on("SendMessage", async (e) => {
     // 事件处理
+    e.reply([{
+        type: 'text',
+        text: '文本消息',
+        style: 'buis'
+    },{
+        type: "at",
+        id: 288321425,
+        style: 'b'
+    },{
+        type: 'button',
+        id: '组件消息',
+        text: '组件消息'
+    }])
 })
 
 process.on("unhandledRejection", error => {
