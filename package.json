@@ -1,12 +1,13 @@
 {
   "name": "mysv",
-  "version": "1.0.11",
-  "update": "2023/12/09",
+  "version": "1.0.12",
+  "update": "2023/12/10",
   "description": "米游社大别野机器人js-sdk",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "bot": "tsc && node app.js"
   },
   "repository": "https://github.com/nk-ava/mysv.git",
   "homepage": "https://github.com/nk-ava/mysv.git#README",

@@ -2,7 +2,7 @@ import express, {Application} from "express";
 import Parser, {Events} from "../parser";
 import {Bot, Config, RobotRunTimeError} from "../bot";
 import bodyParse from "body-parser";
-import {localIP} from "../common";
+import {localIP, lock} from "../common";
 
 export class HttpClient {
 	private readonly config: Config;
@@ -19,6 +19,9 @@ export class HttpClient {
 		this.port = config.port || 8081
 		this.configApplication()
 		this.startServe(cb)
+
+		lock(this, "config")
+		lock(this, "c")
 	}
 
 	private watchPath() {

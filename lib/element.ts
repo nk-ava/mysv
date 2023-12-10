@@ -10,7 +10,7 @@ import {
 	MentionedInfo, MsgContent,
 	MsgContentInfo, Panel
 } from "./message";
-import {Bot} from "./bot";
+import {Bot, RobotRunTimeError} from "./bot";
 import {Villa} from "./villa";
 
 export interface Text {
@@ -387,6 +387,83 @@ export class Msg {
 				offset: this.offset,
 				length: len
 			})
+		}
+	}
+}
+
+export const segment = {
+	at: (id: number | string, style?: string): At => {
+		if (typeof id === 'number') {
+			return {
+				type: 'at',
+				id: id,
+				scope: 'user',
+				style: style
+			}
+		}
+		if (id.trim() === "all") return {
+			type: 'at',
+			scope: 'all',
+			style: style
+		}
+		if (!id?.startsWith("bot_")) throw new RobotRunTimeError(-13, `不是正确的bot_id`)
+		return {
+			type: 'at',
+			id: id,
+			scope: 'bot',
+			style: style
+		}
+	},
+	text: (text: string, style?: string): Text => {
+		return {
+			type: 'text',
+			text: String(text),
+			style: style
+		}
+	},
+	image: (file: string, headers?: any): Image => {
+		return {
+			type: 'image',
+			file: file,
+			headers: headers
+		}
+	},
+	post: (id: string | number): Post => {
+		return {
+			type: 'post',
+			id: id
+		}
+	},
+	link: (url: string, name?: string, style?: string): Link => {
+		return {
+			type: 'link',
+			url: url,
+			name: name,
+			style: style
+		}
+	},
+	rlink: (vid: number, rid: number, name?: string, style?: string): LinkRoom => {
+		return {
+			type: 'rlink',
+			vid: vid,
+			rid: rid,
+			name: name,
+			style: style
+		}
+	},
+	button: (id: string, c_type: 'input' | 'link' | 'cb', size?: 'small' | 'middle' | 'big'): Button => {
+		return {
+			type: "button",
+			id: id,
+			text: id,
+			c_type: c_type,
+			size: size
+		}
+	},
+	template: (id: number): Template => {
+		return {
+			type: 'template',
+			id: id
 		}
 	}
 }

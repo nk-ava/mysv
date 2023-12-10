@@ -27,6 +27,8 @@ const et: string[] = [
 	'AuditCallback',
 	"ClickMsgComponent"
 ]
+const auditResult = ["None", "Pass", "Reject"]
+const objName = ["UnknownObjectName", "Text", "Post"]
 
 export default class Parser {
 	public event_type: string
@@ -64,7 +66,7 @@ export default class Parser {
 						join_nickname: v.join_user_nickname,
 						join_time: Number(v.join_at)
 					} as JoinVilla)
-					this.c.logger.info(`用户 ${v.join_nickname}(${v.join_uid})加入大别野[${info.name || "unknown"}](${this.baseEvent.source.villa_id})`)
+					this.c.logger.info(`用户 ${v.join_user_nickname}(${v.join_uid})加入大别野[${info.name || "unknown"}](${this.baseEvent.source.villa_id})`)
 					break
 				case "SendMessage":
 				case "send_message":
@@ -81,7 +83,7 @@ export default class Parser {
 						from_uid: Number(v.from_user_id),
 						send_time: Number(v.send_at),
 						room_id: Number(v.room_id),
-						object_name: v.object_name,
+						object_name: typeof v.object_name === 'string' ? v.object_name : objName[Number(v.object_name)],
 						nickname: v.nickname,
 						msg_id: v.msg_uid,
 						bot_msg_id: v.bot_msg_id,
@@ -122,7 +124,7 @@ export default class Parser {
 						room_id: Number(v.room_id),
 						from_uid: Number(v.uid),
 						emoticon_id: Number(v.emoticon_id),
-						emoticon: v.emoticon,
+						emoticon: v.emoticon = v.emoticon || v.emoticon_type === 1 && `别野专属表情 ${v.emoticon_id}` || 'unknown',
 						msg_id: v.msg_uid,
 						bot_msg_id: v.bot_msg_id,
 						is_cancel: v.is_cancel,
@@ -142,12 +144,13 @@ export default class Parser {
 						room_id: Number(v.room_id),
 						user_id: Number(v.user_id),
 						pass_through: v.pass_through,
-						audit_result: Number(v.audit_result),
+						audit_result: typeof v.audit_result === 'string' ? v.audit_result : (v.audit_result = auditResult[Number(v.audit_result)]),
 						reply: (content: Elem | Elem[]): Promise<MessageRet> => {
 							return this.c.sendMsg(v.room_id, this.baseEvent.source.villa_id, content)
 						}
 					} as AuditCallback)
 					this.c.logger.info(`${v.audit_id}审核结果：${v.audit_result}`)
+					this.c.handler.get(v.audit_id)?.(v.audit_result)
 					break
 				case "ClickMsgComponent":
 				case "click_msg_component":

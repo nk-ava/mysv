@@ -125,6 +125,8 @@ export class Bot extends EventEmitter {
 	private client: HttpClient | WsClient | undefined;
 	private keepAlive: boolean
 
+	public handler: Map<string, Function>
+
 	constructor(props: Config) {
 		super();
 		this.config = {
@@ -135,6 +137,7 @@ export class Bot extends EventEmitter {
 		}
 		if (!this.config?.pub_key?.length) throw new RobotRunTimeError(-1, '未配置公钥，请配置后重试')
 		this.mhyHost = "https://bbs-api.miyoushe.com"
+		this.handler = new Map
 		this.pubKey = crypto.createPublicKey(props.pub_key)
 		if (!this.config.ws) this.jwkKey = this.pubKey.export({format: "jwk"})
 		this.enSecret = this.encryptSecret()
@@ -146,6 +149,11 @@ export class Bot extends EventEmitter {
 
 		lock(this, "enSecret")
 		lock(this, "config")
+		lock(this, "handler")
+		lock(this, 'statistics')
+		lock(this, "jwkKey")
+		lock(this, "pubKey")
+
 	}
 
 	get stat() {
@@ -174,13 +182,14 @@ export class Bot extends EventEmitter {
 				if (!this.keepAlive) return
 				this.logger.error(`连接已断开，reason ${reason.toString() || 'unknown'}(${code})，5秒后将自动重连...`)
 				setTimeout(async () => {
-					await this.newWsClient(() => {
-					})
+					await this.newWsClient(cb)
 				}, 5000)
 			})
 		} catch (err) {
-			this.logger.error(`建立连接失败，请稍后重试...`)
-			throw new RobotRunTimeError(-11, (err as Error).message)
+			this.logger.error(`建立连接失败，5秒后将自动重连...`)
+			setTimeout(async () => {
+				await this.newWsClient(cb)
+			}, 5000)
 		}
 	}
 
@@ -334,22 +343,38 @@ export class Bot extends EventEmitter {
 	}
 
 	/** 提交审核，如果送审图片，需先调用转存接口，将转存后的URL填充到audit_content中 */
-	async submitAudit(villa_id: number, content: string, room_id: number, uid: number, text: boolean, pt: string = "") {
-		const {data} = await axios.post(`${this.mhyHost}/vila/api/bot/platform/audit`, {
+	async submitAudit(villa_id: number, content: string, room_id: number, uid: number, text: boolean = true, pt: string = "") {
+		if (!text) content = await this.uploadImage(content, villa_id)
+		return await this.fetchResult(villa_id, "/vila/api/bot/platform/audit", "post", "", {
 			audit_content: content,
 			pass_through: pt,
 			room_id: room_id,
 			uid: uid,
 			content_type: text ? "AuditContentTypeText" : "AuditContentTypeImage"
-		}, {
-			headers: {
-				"x-rpc-bot_id": this.config.bot_id,
-				"x-rpc-bot_secret": this.enSecret,
-				"x-rpc-bot_villa_id": villa_id,
-				"Content-Type": "application/json"
-			}
 		})
-		return data.data
+	}
+
+	/** 提交审核，并获取结果 */
+	async submitAuditSync(villa_id: number, content: string, room_id: number, uid: number, text: boolean = true, pt: string = "") {
+		const audit_id = (await this.submitAudit(villa_id, content, room_id, uid, text, pt))?.audit_id
+		return new Promise((resolve, reject) => {
+			const timer = setTimeout(() => {
+				this.handler.delete(audit_id)
+				reject(new RobotRunTimeError(-12, `审核id：${audit_id}获取审核结果超时`))
+			}, 10000)
+			this.handler.set(audit_id, (result: any) => {
+				clearTimeout(timer)
+				this.handler.delete(audit_id)
+				resolve(result)
+			})
+		})
+	}
+
+	/** ws退出登入，只有回调是ws才有用 */
+	async logout() {
+		if (this.client instanceof WsClient) await (this.client as WsClient).doPLogout()
+		else return false
+		return true
 	}
 
 	/** 图片转存，只能转存有网络地址的图片，上传图片请配置mys_ck调用上传接口 */
@@ -530,6 +555,6 @@ export class Bot extends EventEmitter {
 }
 
 /** 创建一个服务 */
-export function createServe(props: Config) {
+export function createBot(props: Config) {
 	return new Bot(props)
 }

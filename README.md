@@ -17,9 +17,9 @@
 **Usage:**
 
 ```js
-const {createServe} = require("mysv")
+const {createBot} = require("mysv")
 
-const app = createServe({
+const app = createBot({
     bot_id: 'bot_id',
     secret: 'secret',
     ws: true,// 为true则优先ws

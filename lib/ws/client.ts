@@ -5,6 +5,7 @@ import Writer from "./writer";
 import PbJs, {Type} from "protobufjs"
 import {Proto} from "./protobuf";
 import Parser, {Events} from "../parser";
+import {lock} from "../common";
 
 export interface WSInfo {
 	/** Websocket 接入地址 */
@@ -52,6 +53,9 @@ export class WsClient extends WebSocket {
 		this.seq = 0n
 		this[HANDLER] = new Map
 		this.watchEvents(cb)
+
+		lock(this, "info")
+		lock(this, "c")
 	}
 
 	static async new(c: Bot, cb: Function): Promise<WsClient> {

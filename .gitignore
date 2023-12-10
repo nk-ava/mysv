@@ -6,3 +6,5 @@ node_modules
 *.js
 module
 code.js
+!protobuf.min.js
+!protobuf.min.d.ts
