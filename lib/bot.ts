@@ -118,7 +118,8 @@ export class Bot extends EventEmitter {
 		send_img_cnt: 0,
 		recv_event_cnt: 0,
 		pkt_lost_cnt: 0,
-		pkt_send_cnt: 0
+		pkt_send_cnt: 0,
+		call_api_cnt: 0
 	}
 
 	readonly vl = new Map<number, VillaInfo>()
@@ -454,6 +455,7 @@ export class Bot extends EventEmitter {
 		this.logger.debug(`axios请求参数：{host: ${this.mhyHost}${path}${query}, method: ${method}, body: ${JSON.stringify(body)}}`)
 		const r = data.data
 		if (!r) throw new RobotRunTimeError(-7, `${path}返回错误：${data.message}`)
+		this.statistics.call_api_cnt++
 		return r
 	}
 

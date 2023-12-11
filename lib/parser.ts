@@ -11,7 +11,7 @@ import {
 import {MessageRet} from "./event/baseEvent";
 import {Quotable, Bot} from "./bot";
 import {Villa, VillaInfo} from "./villa";
-import {At, Button, CType, Elem, Image, Link, LinkRoom, Template, Text} from "./element";
+import {At, Badge, Button, CType, Elem, Image, Link, LinkRoom, PreviewLink, Template, Text} from "./element";
 import {Entity} from "./message";
 import {User} from "./event/cbEvents";
 
@@ -77,10 +77,10 @@ export default class Parser {
 						message: this.parseContent(content.content, content.panel),
 						user: {
 							...content.user,
-							id: Number(content.user.id)
+							id: Number(content.user.id) || content.user.id
 						} as User,
 						msg: msg,
-						from_uid: Number(v.from_user_id),
+						from_uid: v.from_user_id = (v.bot_msg_id ? this.baseEvent.source.bot.id : Number(v.from_user_id)),
 						send_time: Number(v.send_at),
 						room_id: Number(v.room_id),
 						object_name: typeof v.object_name === 'string' ? v.object_name : objName[Number(v.object_name)],
@@ -182,6 +182,8 @@ export default class Parser {
 		const text = content.text
 		const entities = content.entities as Array<Entity>
 		const images = content?.images?.[0]
+		const preview = content?.preview_link
+		const badge = content?.badge
 		let now = 0
 		entities.sort((x, y) => (x?.offset || 0) - (y?.offset || 0))
 		for (let i = 0; i < entities.length; i++) {
@@ -296,36 +298,59 @@ export default class Parser {
 		}
 
 		/** 解析Panel */
-		if (!panel) return rs
-		if (panel.template_id) rs.push({
-			type: 'template',
-			id: panel.template_id
-		} as Template)
-		const gl = panel.group_list
-		if (!gl) return rs
-		for (let row of gl) {
-			let size = ""
-			if (row.length === 1) size = 'big'
-			else if (row.length === 2) size = 'middle'
-			else if (row.length === 3) size = 'small'
-			for (let c of row) {
-				switch (c.type) {
-					case 1:
-						rs.push({
-							type: 'button',
-							size: size,
-							id: c.id,
-							text: c.text,
-							cb: c.need_callback,
-							extra: c.extra,
-							c_type: CType[c.c_type],
-							input: c.input,
-							link: c.link,
-							token: c.need_token
-						} as Button)
-						break
+		if (panel) {
+			if (panel.template_id) rs.push({
+				type: 'template',
+				id: panel.template_id
+			} as Template)
+			const gl = panel.group_list || []
+			for (let row of gl) {
+				let size = ""
+				if (row.length === 1) size = 'big'
+				else if (row.length === 2) size = 'middle'
+				else if (row.length === 3) size = 'small'
+				for (let c of row) {
+					switch (c.type) {
+						case 1:
+							rs.push({
+								type: 'button',
+								size: size,
+								id: c.id,
+								text: c.text,
+								cb: c.need_callback,
+								extra: c.extra,
+								c_type: CType[c.c_type],
+								input: c.input,
+								link: c.link,
+								token: c.need_token
+							} as Button)
+							break
+					}
 				}
 			}
+		}
+
+		/** 解析Preview_link */
+		if (preview) {
+			rs.push({
+				type: 'plink',
+				title: preview.title,
+				content: preview.content,
+				url: preview.url,
+				icon: preview.icon_url,
+				source: preview.source_name,
+				image: preview.image_url
+			} as PreviewLink)
+		}
+
+		/** 解析badge */
+		if (badge) {
+			rs.push({
+				type: 'badge',
+				icon: badge.icon_url,
+				text: badge.text,
+				url: badge.url
+			} as Badge)
 		}
 		return rs
 	}

@@ -27,14 +27,30 @@ export interface QuoteInfo {
 	original_message_send_time: number
 }
 
-export interface MsgContent extends TextMsg, ImageMsg, PostMsg, TextImageMsg {
-
+export interface PreviewLinkMsg {
+	title: string
+	content: string
+	url: string
+	icon_url: string
+	source_name: string
+	image_url: string
 }
+
+export interface BadgeMsg {
+	"icon_url": string
+	"text": string
+	"url": string
+}
+
+type MsgContent = TextMsg | ImageMsg | PostMsg
 
 /** 文本消息 */
 export interface TextMsg {
 	text: string
 	entities?: Array<Entity>
+	images?: ImageMsg[]
+	preview_link?: PreviewLinkMsg
+	badge?: BadgeMsg
 }
 
 /** 图片消息 */
@@ -45,11 +61,6 @@ export interface ImageMsg {
 		height: number
 	}
 	file_size?: number
-}
-
-/** 图文消息 **/
-export interface TextImageMsg extends TextMsg {
-	images: ImageMsg[]
 }
 
 /** 分享米游社帖子 */

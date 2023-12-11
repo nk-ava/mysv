@@ -7,7 +7,8 @@
   "types": "lib/index.d.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "bot": "tsc && node app.js"
+    "bot": "tsc && node app.js",
+    "inspect": "tsc && node --inspect app.js"
   },
   "repository": "https://github.com/nk-ava/mysv.git",
   "homepage": "https://github.com/nk-ava/mysv.git#README",

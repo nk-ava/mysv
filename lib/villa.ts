@@ -235,26 +235,41 @@ export type NoticeType = "BOT_PLATFORM_DEFAULT_NOTIFY_TYPE_NOTIFY"	//默认通�
 	| "BOT_PLATFORM_DEFAULT_NOTIFY_TYPE_INVALID"	                //无效
 
 export interface RoomInfo {
-	room_id: number	                        //房间 id
-	room_name: string	                    //房间名称
-	room_type: RoomType	                    //房间类型
-	group_id: number	                    //分组 id
-	room_default_notify_type: NoticeType	//房间默认通知类型
+	//房间 id
+	room_id: number
+	//房间名称
+	room_name: string
+	//房间类型
+	room_type: RoomType
+	//分组 id
+	group_id: number
+	//房间默认通知类型
+	room_default_notify_type: NoticeType
+	//房间消息发送权限范围设置
 	send_msg_auth_range: {
-		is_all_send_msg: boolean            //是否全局可发送
-		roles: Array<number>                //可发消息的身份组 id
-	}	                                    //房间消息发送权限范围设置
+		//是否全局可发送
+		is_all_send_msg: boolean
+		//可发消息的身份组 id
+		roles: Array<number>
+	}
 }
 
 export interface VillaInfo {
-	villa_id: number	        //大别野 id
-	name: string	            //名称
-	villa_avatar_url: string	//别野头像链接
-	owner_uid: number	        //别野主人 id
-	is_official: boolean	    //是否是官方别野
-	introduce: string	        //介绍
+	//大别野 id
+	villa_id: number
+	//名称
+	name: string
+	//别野头像链接
+	villa_avatar_url: string
+	//别野主人 id
+	owner_uid: number
+	//是否是官方别野
+	is_official: boolean
+	//介绍
+	introduce: string
 	category_id: number
-	tags: string[]	            //标签
+	//标签
+	tags: string[]
 }
 
 /** 身份组可添加权限 */

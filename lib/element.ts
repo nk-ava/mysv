@@ -1,14 +1,14 @@
 import {
 	AtAll,
 	AtRobot,
-	AtUser, Component,
+	AtUser, BadgeMsg, Component,
 	Entity,
 	FontStyle,
 	ImageMsg,
 	LinkMsg,
 	LinkRoomMsg,
-	MentionedInfo, MsgContent,
-	MsgContentInfo, Panel
+	MentionedInfo,
+	MsgContentInfo, Panel, PreviewLinkMsg, TextMsg
 } from "./message";
 import {Bot, RobotRunTimeError} from "./bot";
 import {Villa} from "./villa";
@@ -37,11 +37,14 @@ export interface Button {
 	type: 'button'
 	size?: 'small' | 'middle' | 'big'
 	text: string
+	/** 是否回调 */
 	cb?: boolean
 	extra?: string
+	/** 按钮类型，有输入，链接和回调三种 */
 	c_type?: 'input' | 'link' | 'cb'
 	input?: string
 	link?: string
+	/** c_type为link时，访问是否携带token */
 	token?: boolean
 }
 
@@ -75,27 +78,57 @@ export interface LinkRoom {
 	type: 'rlink'
 	name?: string
 	style?: string
+	/** 别野ID */
 	vid: string | number
+	/** 房间ID */
 	rid: string | number
 }
 
-export type Elem = Text | At | Image | Post | Link | LinkRoom | Button | Template | string
+export interface PreviewLink {
+	type: 'plink'
+	/** 标题 */
+	title: string
+	/** 内容 */
+	content: string
+	/** 跳转链接 */
+	url: string
+	/** 图标链接 */
+	icon?: string
+	/** 来源处 */
+	source?: string
+	/** 图片链接 */
+	image?: string
+}
+
+export interface Badge {
+	type: 'badge'
+	// 图标链接
+	icon?: string
+	// 文本信息
+	text: string
+	// 跳转链接
+	url?: string
+}
+
+export type Elem = Text | At | Image | Post | Link | LinkRoom | Button | Template | PreviewLink | Badge | string
 
 export class Msg {
 	private readonly entities: Array<Entity>
-	private readonly post_id: Array<string>
 	private readonly mention: MentionedInfo
 	private readonly panel: Panel
 	private readonly villa_id: number
-	private img: ImageMsg | undefined
+	private readonly c: Bot
+	private post_id!: string
+	private img!: ImageMsg
 	private t: string
 	private brief: string
 	private origin: Array<any> | undefined
 	private offset: number
 	private obj_name: string
-	private c: Bot
 	private smallComponent: Component[]
 	private midComponent: Component[]
+	private preview!: PreviewLinkMsg
+	private badgeMsg!: BadgeMsg
 
 	constructor(c: Bot, villa_id: number)
 	constructor(c: Bot, villa_id: number, o: Elem[])
@@ -111,7 +144,6 @@ export class Msg {
 		}
 		this.t = ""
 		this.brief = ""
-		this.post_id = Array<string>()
 		this.mention = {type: 0, userIdList: []}
 		this.offset = 0
 		this.obj_name = 'MHY:Text'
@@ -127,7 +159,7 @@ export class Msg {
 			try {// @ts-ignore
 				await this[m.type](m)
 			} catch (e) {
-				this.c.logger.error(`消息{type: ${m.type}}转换失败：${(e as Error).message}`)
+				this.c.logger.error(`消息{type: ${m.type}}转换失败,reason ${(e as Error).message}`)
 			}
 		}
 		return this
@@ -140,16 +172,27 @@ export class Msg {
 				entities: this.entities
 			}
 		} as MsgContentInfo
-		if (this.img) {
-			if (this.t.length) tmg.content.images = [this.img]
-			else {
-				tmg.content = <MsgContent>this.img
-				this.obj_name = "MHY:Image"
-			}
-		}
-		if (this.post_id.length) {
-			tmg.content.post_id = this.post_id[0]
+		if (this.post_id) {
+			tmg.content = {post_id: this.post_id}
+			this.brief = `[帖子](${this.post_id})`
 			this.obj_name = "MHY:Post"
+		} else {
+			if (this.img) {
+				this.brief += '[图片]';
+				if (this.t.length) (tmg.content as TextMsg).images = [this.img]
+				else {
+					tmg.content = this.img
+					this.obj_name = "MHY:Image"
+				}
+			}
+			if (this.preview && this.t.length) {
+				this.brief += "[图文链接]";
+				(tmg.content as TextMsg).preview_link = this.preview
+			}
+			if (this.badgeMsg && this.t.length) {
+				this.brief += `{badge: ${this.badgeMsg.text}}`;
+				(tmg.content as TextMsg).badge = this.badgeMsg
+			}
 		}
 		if (this.mention.type !== 0) tmg.mentionedInfo = this.mention
 		if (this.smallComponent.length) this.panel.small_component_group_list?.push(this.smallComponent)
@@ -239,7 +282,6 @@ export class Msg {
 	private async image(m: Image) {
 		if (!m.file || m.file === "") return
 		if (this.img) return;
-		this.brief += '[图片]'
 		this.img = {
 			url: await this.c.uploadImage(m.file, this.villa_id, m.headers)
 		} as ImageMsg
@@ -284,10 +326,10 @@ export class Msg {
 	}
 
 	private post(m: Post) {
+		if (this.post_id) return;
 		m.id = String(m.id)
 		if (!m.id || m.id === "") return
-		this.brief += `[帖子](${m.id})`
-		this.post_id.push(m.id)
+		this.post_id = m.id
 	}
 
 	private button(m: Button) {
@@ -345,6 +387,33 @@ export class Msg {
 
 	private template(m: Template) {
 		this.panel.template_id = m.id
+	}
+
+	private async plink(m: PreviewLink) {
+		if (this.preview) return
+		if (!m.icon || !m.source) {
+			const vinfo = await Villa.getInfo(this.c, this.villa_id)
+			!m.icon && (m.icon = (vinfo?.villa_avatar_url || 'https://i.gtimg.cn/open/app_icon/09/28/85/17/1109288517_100_ios.png'))
+			!m.source && (m.source = (vinfo?.name || '米游社'))
+		}
+		this.preview = {
+			title: m.title || "米游社",
+			content: m.content || "米游社是米哈游（miHoYo）旗下游戏玩家社区。集合了崩坏学园2、崩坏3、未定事件簿、原神、崩坏：星穹铁道、绝区零等游戏官方资讯、游戏攻略、活动周边、福利趣闻和同人作品。",
+			url: m.url || "https://www.miyoushe.com/",
+			icon_url: m.icon,
+			source_name: m.source,
+			image_url: m.image || "https://i.gtimg.cn/open/app_icon/09/28/85/17/1109288517_100_ios.png"
+		}
+	}
+
+	private badge(m: Badge) {
+		!m.icon && (m.icon = "https://upload-bbs.mihoyo.com/vila_bot/bbs_origin_badge.png")
+		!m.url && (m.url = "https://www.miyoushe.com/")
+		this.badgeMsg = {
+			icon_url: m.icon,
+			text: m.text,
+			url: m.url
+		}
 	}
 
 	private style(obj: any, len: number) {
@@ -464,6 +533,23 @@ export const segment = {
 		return {
 			type: 'template',
 			id: id
+		}
+	},
+	plink: (title: string, content: string, url: string, image?: string): PreviewLink => {
+		return {
+			type: 'plink',
+			title: title,
+			content: content,
+			url: url,
+			image: image
+		}
+	},
+	badge: (text: string, url?: string, icon?: string): Badge => {
+		return {
+			type: 'badge',
+			icon: icon,
+			text: text,
+			url: url
 		}
 	}
 }
