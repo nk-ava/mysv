@@ -132,10 +132,11 @@ export class WsClient extends WebSocket {
 		const payload = await this.sendDataSync(8, pb.encode(body))
 		if (typeof payload[1] !== "undefined" && payload[1] !== 0) {
 			this.c.logger.error(`登出ws服务器失败， code: ${payload[1]} reason: ${payload[2] || 'unknown'}`)
-			return
+			return false
 		}
 		this.c.setKeepAlive(false)
 		this.close()
+		return true
 	}
 
 	private [FN_SEND](pkt: Buffer, seq: bigint) {

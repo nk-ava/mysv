@@ -6,6 +6,7 @@
 
 * feat: 新增`plink`消息类型
 * feat: 新增`badge`消息类型
+* fix: 修复ws回调时调用`Bot.logout`登出失败
 
 # v1.0.12
 

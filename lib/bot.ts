@@ -373,8 +373,13 @@ export class Bot extends EventEmitter {
 
 	/** ws退出登入，只有回调是ws才有用 */
 	async logout() {
-		if (this.client instanceof WsClient) await (this.client as WsClient).doPLogout()
-		else return false
+		if (this.client instanceof WsClient) {
+			if (!(await (this.client as WsClient).doPLogout())) {
+				this.logger.warn("本地将直接关闭连接...")
+				this.keepAlive = false
+				this.client.close()
+			}
+		} else return false
 		return true
 	}
 
