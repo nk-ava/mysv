@@ -1,7 +1,11 @@
 import crypto from "crypto";
 import stream from "stream";
-import {RobotRunTimeError} from "./bot";
+import {Bot, RobotRunTimeError} from "./bot";
 import * as os from "os";
+import qr, {Bitmap} from "qr-image"
+import {promisify} from "util";
+import axios, {AxiosResponse} from "axios";
+import fs from "node:fs";
 
 export const UintSize = 32 << (~0 >>> 63)
 export const _W = UintSize - 1
@@ -229,6 +233,69 @@ export function localIP(): string | undefined {
 	} else if (OS_TYPE === "Linux") {
 		//@ts-ignore
 		return ifaces?.eth0[0]?.address
+	}
+}
+
+/** 获取二维码 */
+export async function fetchQrCode(this: Bot) {
+	let res = await axios.post("https://passport-api.miyoushe.com/account/ma-cn-passport/web/createQRLogin", {}, {
+		headers: getHeaders()
+	})
+	if (!res.data) throw new RobotRunTimeError(-1, "请求二维码失败")
+	res = res.data
+	let info = res?.data
+	if (!info) throw new RobotRunTimeError(-1, "请求二维码失败")
+	const io = qr.image(info.url, {
+		type: 'png',
+		ec_level: 'H',
+		margin: 1,
+		size: 1,
+		customize: logQrcode
+	})
+	const f = `./data/${this.config.bot_id}/mysQr.png`
+	await promisify(stream.pipeline)(io, fs.createWriteStream(f));
+	return {img: f, ticket: info.ticket}
+}
+
+/** 控制台输出二维码 */
+function logQrcode(img: Bitmap) {
+	const color_reset = "\x1b[0m"
+	const color_fg_blk = "\x1b[30m"
+	const color_bg_blk = "\x1b[40m"
+	const color_fg_wht = "\x1b[37m"
+	const color_bg_wht = "\x1b[47m"
+	for (let i = 0; i < 63; i += 2) {
+		let line = ""
+		for (let j = 1; j < 64; j++) {
+			let r0 = img.data[i * 64 + j]
+			let r1 = img.data[i * 64 + j + 64]
+			let bgcolor = (r0 === 255) ? color_bg_wht : color_bg_blk
+			let fgcolor = (r1 === 255) ? color_fg_wht : color_fg_blk
+			line += `${fgcolor + bgcolor}\u2584`
+		}
+		console.log(line + color_reset)
+	}
+}
+
+export function getHeaders() {
+	return {
+		"Accept": 'application/json, text/plain, */*',
+		"Accept-Encoding": 'gzip, deflate, br',
+		"Accept-Language": 'zh-CN,zh;q=0.9',
+		"Connection": 'keep-alive',
+		"Content-Length": 2,
+		"Content-Type": 'application/json',
+		"Host": 'passport-api.miyoushe.com',
+		"Origin": 'https://user.miyoushe.com',
+		"Referer": 'https://user.miyoushe.com/',
+		"X-Rpc-App_id": 'bll8iq97cem8',
+		"X-Rpc-Client_type": 4,
+		"X-Rpc-Device_fp": '38d7eecd8e3d8',
+		'X-Rpc-Device_id': '98cfc8c7-b24b-45ff-a0e2-19f9e09d5000',
+		'X-Rpc-Device_model': 'Chrome%20114.0.0.0',
+		'X-Rpc-Device_name': 'Chrome',
+		'X-Rpc-Device_os': 'Windows%2010%2064-bit',
+		'X-Rpc-Game_biz': 'bbs_cn'
 	}
 }
 

@@ -28,8 +28,18 @@ export interface At {
 }
 
 export interface Template {
-	type: 'template',
+	type: 'template'
 	id: number
+}
+
+export interface RobotCard {
+	type: 'robot'
+	id: string
+}
+
+export interface VillaCard {
+	type: 'villa'
+	id: string
 }
 
 export interface Button {
@@ -110,7 +120,20 @@ export interface Badge {
 	url?: string
 }
 
-export type Elem = Text | At | Image | Post | Link | LinkRoom | Button | Template | PreviewLink | Badge | string
+export type Elem =
+	Text
+	| At
+	| Image
+	| Post
+	| Link
+	| LinkRoom
+	| Button
+	| Template
+	| PreviewLink
+	| Badge
+	| VillaCard
+	| RobotCard
+	| string
 
 export class Msg {
 	private readonly entities: Array<Entity>
@@ -119,6 +142,8 @@ export class Msg {
 	private readonly villa_id: number
 	private readonly c: Bot
 	private post_id!: string
+	private villa_card!: string
+	private robot_card!: string
 	private img!: ImageMsg
 	private t: string
 	private brief: string
@@ -172,9 +197,17 @@ export class Msg {
 				entities: this.entities
 			}
 		} as MsgContentInfo
-		if (this.post_id) {
+		if (this.robot_card) {
+			tmg.content = {bot_id: this.robot_card}
+			this.brief = `[分享机器人](${this.robot_card})`
+			this.obj_name = 'MHY:RobotCard'
+		} else if (this.villa_card) {
+			tmg.content = {villa_id: this.villa_card}
+			this.brief = `[分享别野](${this.villa_card})`
+			this.obj_name = 'MHY:VillaCard'
+		} else if (this.post_id) {
 			tmg.content = {post_id: this.post_id}
-			this.brief = `[帖子](${this.post_id})`
+			this.brief = `[分享帖子](${this.post_id})`
 			this.obj_name = "MHY:Post"
 		} else {
 			if (this.img) {
@@ -193,8 +226,8 @@ export class Msg {
 				this.brief += `{badge: ${this.badgeMsg.text}}`;
 				(tmg.content as TextMsg).badge = this.badgeMsg
 			}
+			if (this.mention.type !== 0 && this.t.length) tmg.mentionedInfo = this.mention
 		}
-		if (this.mention.type !== 0) tmg.mentionedInfo = this.mention
 		if (this.smallComponent.length) this.panel.small_component_group_list?.push(this.smallComponent)
 		if (this.midComponent.length) this.panel.mid_component_group_list?.push(this.midComponent)
 		return {
@@ -414,6 +447,16 @@ export class Msg {
 			text: m.text,
 			url: m.url
 		}
+	}
+
+	private villa(m: VillaCard) {
+		if (this.villa_card) return
+		this.villa_card = String(m.id)
+	}
+
+	private robot(m: RobotCard) {
+		if (this.robot_card) return
+		this.robot_card = m.id
 	}
 
 	private style(obj: any, len: number) {

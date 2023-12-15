@@ -1,7 +1,7 @@
 import * as log4js from "log4js";
 import crypto from "crypto";
-import axios from "axios";
-import {Encode, lock, md5Stream, TMP_PATH} from "./common"
+import axios, {AxiosResponse} from "axios";
+import {Encode, fetchQrCode, getHeaders, lock, md5Stream, TMP_PATH} from "./common"
 import EventEmitter from "node:events";
 import {verifyPKCS1v15} from "./verify";
 import {
@@ -24,6 +24,7 @@ import {Perm, Villa, VillaInfo} from "./villa";
 import {Readable} from "node:stream";
 import {WsClient} from "./ws";
 import {HttpClient} from "./http";
+import {UClient} from "./uClient";
 
 const pkg = require("../package.json")
 
@@ -69,6 +70,8 @@ export interface Bot {
 
 	/** 点击消息组件事件 */
 	on(name: 'ClickMsgComponent', listener: (this: this, e: ClickMsgComponent) => void): this
+
+	on(name: string, listener: (this: this, ...args: any[]) => void): this
 }
 
 export type LogLevel = 'all' | 'mark' | 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'off'
@@ -95,9 +98,12 @@ export interface Config {
 	/** 测试别野id，如果机器人未上线，则需要填入测试别野id，否则无法使用ws */
 	villa_id?: number
 
+	/** 是否用户登入 */
+	user_login?: boolean
+
 	/**
 	 * 米游社上传图片需要ck，因为不是调用的官方开发api，后续补上官方开发api
-	 * 如果配置了mys_ck会优先使用ck进行图片上传，不配置就走官方接口
+	 * 优先使用官方接口进行图片上传，此上传接口仅在官方接口不可用时自动调用
 	 */
 	mys_ck?: string
 
@@ -106,12 +112,19 @@ export interface Config {
 
 	/** 是否开启签名验证，默认开启，若验证影响性能可关闭 */
 	is_verify?: boolean
+
+	/** 存放机器人数据路径 */
+	data_dir?: string
 }
+
+const INTERVAL = Symbol("INTERVAL")
 
 export class Bot extends EventEmitter {
 	private readonly pubKey: crypto.KeyObject
 	private readonly enSecret: string
 	private readonly jwkKey: crypto.JsonWebKey | undefined
+	private [INTERVAL]!: NodeJS.Timeout
+	private uClient!: UClient
 	private statistics = {
 		start_time: Date.now(),
 		send_msg_cnt: 0,
@@ -125,6 +138,7 @@ export class Bot extends EventEmitter {
 	readonly vl = new Map<number, VillaInfo>()
 	private client: HttpClient | WsClient | undefined;
 	private keepAlive: boolean
+	private keepUseAlive: boolean
 
 	public handler: Map<string, Function>
 
@@ -134,9 +148,13 @@ export class Bot extends EventEmitter {
 			level: 'info',
 			is_verify: true,
 			villa_id: 0,
+			user_login: false,
 			...props
 		}
 		if (!this.config?.pub_key?.length) throw new RobotRunTimeError(-1, '未配置公钥，请配置后重试')
+		if (!fs.existsSync("./data")) fs.mkdirSync("./data")
+		if (!this.config.data_dir) this.config.data_dir = `./data/${this.config.bot_id}`
+		if (!fs.existsSync(this.config.data_dir)) fs.mkdirSync(this.config.data_dir)
 		this.mhyHost = "https://bbs-api.miyoushe.com"
 		this.handler = new Map
 		this.pubKey = crypto.createPublicKey(props.pub_key)
@@ -145,8 +163,14 @@ export class Bot extends EventEmitter {
 		this.logger = log4js.getLogger(`[BOT_ID:${this.config.bot_id}]`)
 		this.logger.level = this.config.level as LogLevel
 		this.keepAlive = true
+		this.keepUseAlive = true
 		this.printPkgInfo()
-		this.run().then(() => this.emit("online"))
+		if (this.config.mys_ck === "" || this.config.user_login) this.getMysCk((ck: string) => {
+			this.config.mys_ck = ck
+			fs.writeFile(`${this.config.data_dir}/cookie`, ck, () => {})
+			this.run().then(() => this.emit("online"))
+		})
+		else this.run().then(() => this.emit("online"))
 
 		lock(this, "enSecret")
 		lock(this, "config")
@@ -163,16 +187,25 @@ export class Bot extends EventEmitter {
 
 	private run() {
 		return new Promise(resolve => {
-			if (this.config.ws) {
-				this.newWsClient(resolve).then()
-			} else {
-				this.client = new HttpClient(this, this.config, resolve)
+			const runs = () => {
+				if (this.config.ws) {
+					this.newWsClient(resolve).then()
+				} else {
+					this.client = new HttpClient(this, this.config, resolve)
+				}
 			}
+			if (this.config.user_login) {
+				this.newUClient(runs).then()
+			} else runs()
 		})
 	}
 
 	setKeepAlive(k: boolean) {
 		this.keepAlive = k
+	}
+
+	setUseAlive(s: boolean) {
+		this.keepUseAlive = s
 	}
 
 	private async newWsClient(cb: Function) {
@@ -187,11 +220,92 @@ export class Bot extends EventEmitter {
 				}, 5000)
 			})
 		} catch (err) {
-			this.logger.error(`建立连接失败，5秒后将自动重连...`)
+			this.logger.error(`${(err as Error).message || "建立连接失败"}, 5秒后将自动重连...`)
 			setTimeout(async () => {
 				await this.newWsClient(cb)
 			}, 5000)
 		}
+	}
+
+	private async newUClient(cb: Function) {
+		try {
+			this.uClient = await UClient.new(this, cb)
+			this.uClient.on("close", async (code, reason) => {
+				this.uClient.destroy()
+				if (!this.keepUseAlive) return
+				this.logger.error(`uclient连接已断开，reason ${reason.toString() || 'unknown'}(${code})，5秒后将自动重连...`)
+				setTimeout(async () => {
+					await this.newUClient(cb)
+				}, 5000)
+			})
+		} catch (err) {
+			if ((err as Error).message.includes("not login")) {
+				this.logger.error("mys_ck已失效，请重新删除cookie后扫码登入")
+				fs.unlinkSync(`${this.config.data_dir}/cookie`)
+				return
+			}
+			this.logger.error(`${(err as Error).message || "uclient建立连接失败"}, 5秒后将自动重连...`)
+			setTimeout(async () => {
+				await this.newUClient(cb)
+			}, 5000)
+		}
+	}
+
+	private getMysCk(cb: Function) {
+		if (!fs.existsSync(`${this.config.data_dir}/cookie`)) fs.writeFileSync(`${this.config.data_dir}/cookie`, "")
+		let ck: string = fs.readFileSync(`${this.config.data_dir}/cookie`, "utf-8")
+		if (ck && ck !== "") {
+			cb(ck)
+			return
+		}
+		const handler = async (data: Buffer) => {
+			clearInterval(this[INTERVAL])
+			this._QrCodeLogin().then()
+		}
+		process.stdin.on("data", handler)
+		this.on("qrLogin.success", ck => {
+			this.logger.info("二维码扫码登入成功")
+			process.stdin.off("data", handler)
+			cb(ck)
+		})
+		this.on("qrLogin.error", e => {
+			this.logger.error("登入失败：reason " + e)
+		})
+		this._QrCodeLogin().then()
+	}
+
+	private async _QrCodeLogin() {
+		const {img, ticket} = await fetchQrCode.call(this);
+		console.log("请用米游社扫描二维码，回车刷新二维码")
+		console.log(`二维码已保存到${img}`)
+		this[INTERVAL] = setInterval(async () => {
+			this.logger.debug('请求二维码状态...')
+			const res: AxiosResponse = await axios.post("https://passport-api.miyoushe.com/account/ma-cn-passport/web/queryQRLoginStatus?ticket=" + ticket, {}, {
+				headers: getHeaders()
+			})
+			let status = res?.data
+			if (!status) return
+			if (status.message !== 'OK') {
+				this.emit("qrLogin.error", status?.message || "unknown")
+				clearInterval(this[INTERVAL])
+				return
+			}
+			status = status?.data?.status
+			if (!status) return
+			if (status === 'Confirmed') {
+				const set_cookie = res.headers["set-cookie"]
+				if (!set_cookie) {
+					this.emit("qrLogin.error", "没有获取到cookie, 请刷新重试")
+					clearInterval(this[INTERVAL])
+					return
+				}
+				let cookie = ""
+				for (let ck of set_cookie) cookie += ck.split("; ")[0] + "; "
+				if (cookie === "") this.emit("qrLogin.error", "获取到的cookie为空，请刷新二维码重新获取")
+				else this.emit("qrLogin.success", cookie)
+				clearInterval(this[INTERVAL])
+			}
+		}, 1000)
 	}
 
 	/** 输出包信息 */
@@ -374,6 +488,10 @@ export class Bot extends EventEmitter {
 	/** ws退出登入，只有回调是ws才有用 */
 	async logout() {
 		if (this.client instanceof WsClient) {
+			if (this.config.user_login) {
+				this.keepUseAlive = false
+				this.uClient.close()
+			}
 			if (!(await (this.client as WsClient).doPLogout())) {
 				this.logger.warn("本地将直接关闭连接...")
 				this.keepAlive = false
@@ -473,49 +591,65 @@ export class Bot extends EventEmitter {
 		} catch (err) {
 			this.logger.mark(`图片(${url})转存失败(${(err as Error).message || "unknown"})，将使用本地上传`)
 			const tmpFile = TMP_PATH + `/${crypto.randomUUID()}-${Date.now()}`
-			const body = (await axios.get(url, {
-				headers: headers,
-				responseType: 'stream'
-			})).data as Readable
-			await new Promise(resolve => {
-				body.pipe(fs.createWriteStream(tmpFile))
-				body.on("end", resolve)
-			})
-			const new_url = await this._uploadLocalImage(tmpFile, villa_id)
-			fs.unlink(tmpFile, () => {
-			})
-			return new_url
+			try {
+				const body = (await axios.get(url, {
+					headers: headers,
+					responseType: 'stream'
+				})).data as Readable
+				await new Promise(resolve => {
+					body.pipe(fs.createWriteStream(tmpFile))
+					body.on("end", resolve)
+				})
+				return await this._uploadLocalImage(tmpFile, villa_id)
+			} catch (e) {
+				throw e
+			} finally {
+				fs.unlink(tmpFile, () => {})
+			}
 		}
 		return await this._uploadLocalImage(url, villa_id)
 	}
 
 	private async _uploadLocalImage(file: string, villa_id?: number): Promise<string> {
+		let url: string
+		let readable = fs.createReadStream(file)
+		const ext = file.match(/\.\w+$/)?.[0]?.slice(1)
 		try {
-			const readable = fs.createReadStream(file);
-			const ext = file.match(/\.\w+$/)?.[0]?.slice(1)
-			if (this.config.mys_ck) var {message, data} = await this._uploadImageWithCk(readable, ext)
-			else var {message, data} = await this._uploadImageApi(readable, ext, villa_id)
-			if (!data) throw new RobotRunTimeError(-4, message)
-			return data.url
+			url = await this._uploadImageApi(readable, ext, villa_id)
 		} catch (e: any) {
-			throw new RobotRunTimeError(e.code || -5, e.message)
+			this.logger.error(`官方上传接口调用失败 reason: ${e.message || "unknown"}`)
+			this.logger.mark('将使用米游社上传接口，请确定已配置mys_ck')
+			if (!readable.closed) readable.close(() => {})
+			readable = fs.createReadStream(file)
+			url = await this._uploadImageWithCk(readable, ext)
+		} finally {
+			if (!readable.closed) readable.close(() => {})
 		}
+		return url
 	}
 
-	private async _uploadImageWithCk(readable: stream.Readable, e: string | undefined): Promise<{ recode: number, message: string, data: any }> {
+	private async _uploadImageWithCk(readable: stream.Readable, e: string | undefined): Promise<string> {
 		if (!this.config.mys_ck) throw new RobotRunTimeError(-3, "未配置mys_ck，无法调用上传接口")
 		if (!readable.readable) throw new RobotRunTimeError(-1, "The first argument is not readable stream")
 		/** 支持jpg,jpeg,png,gif,bmp **/
 		const ext = e || 'png';
 		const file = await md5Stream(readable);
 		const md5 = file.md5.toString("hex");
-		const {data} = await axios.get(
-			`https://bbs-api.miyoushe.com/apihub/sapi/getUploadParams?md5=${md5}&ext=${ext}&support_content_type=1&upload_source=1`, {
+		const {data} = await axios.post(
+			`https://bbs-api.miyoushe.com/apihub/wapi/getUploadParams`, {
+				biz: 'community',
+				ext: ext,
+				md5: md5,
+				extra: {
+					upload_source: "UPLOAD_SOURCE_COMMUNITY"
+				},
+				support_content_type: true
+			}, {
 				headers: {
 					"cookie": this.config.mys_ck
 				}
 			})
-		if (!data.data) return data
+		if (!data.data) throw new RobotRunTimeError(-3, data.message)
 		const param = data.data
 		const form = new FormData();
 		form.append("x:extra", param.params['callback_var']['x:extra']);
@@ -528,13 +662,16 @@ export class Bot extends EventEmitter {
 		form.append("key", param.file_name);
 		form.append("policy", param.params.policy);
 		form.append("file", file.buff, {filename: param.params.name});
-		return (await axios.post(param.params.host, form, {
+		const result = (await axios.post(param.params.host, form, {
 			headers: {...form.getHeaders(), "Connection": 'Keep-Alive', "Accept-Encoding": "gzip"}
 		})).data
+		if (!result.data) throw new RobotRunTimeError(-3, result.message)
+		return result.data.url
 	}
 
-	private async _uploadImageApi(readable: stream.Readable, e: string | undefined, villa_id?: number): Promise<{ recode: number, message: string, data: any }> {
+	private async _uploadImageApi(readable: stream.Readable, e: string | undefined, villa_id?: number): Promise<string> {
 		if (!villa_id) throw new RobotRunTimeError(-1, '上传图片缺少参数villa_id')
+		if (!readable.readable) throw new RobotRunTimeError(-1, "The first argument is not readable stream")
 		const path = "/vila/api/bot/platform/getUploadImageParams"
 		const ext = e || 'png';
 		const file = await md5Stream(readable);
@@ -553,11 +690,13 @@ export class Bot extends EventEmitter {
 		form.append("policy", params.policy)
 		form.append("Content-Disposition", params.content_disposition)
 		form.append("file", file.buff)
-		return (await axios.post(params.host, form, {
+		const result = (await axios.post(params.host, form, {
 			headers: {
 				...form.getHeaders()
 			}
 		})).data
+		if (!result.data) throw new RobotRunTimeError(-9, result.message)
+		return result.data.url
 	}
 }
 

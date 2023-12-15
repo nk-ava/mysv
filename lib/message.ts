@@ -42,7 +42,7 @@ export interface BadgeMsg {
 	"url": string
 }
 
-type MsgContent = TextMsg | ImageMsg | PostMsg
+type MsgContent = TextMsg | ImageMsg | PostMsg | VillaCardMsg | RobotCardMsg
 
 /** 文本消息 */
 export interface TextMsg {
@@ -51,6 +51,16 @@ export interface TextMsg {
 	images?: ImageMsg[]
 	preview_link?: PreviewLinkMsg
 	badge?: BadgeMsg
+}
+
+/** 分享别野卡片 */
+export interface VillaCardMsg {
+	villa_id: string
+}
+
+/** 分享机器人卡片 */
+export interface RobotCardMsg {
+	bot_id: string
 }
 
 /** 图片消息 */

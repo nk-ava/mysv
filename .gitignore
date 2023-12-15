@@ -5,6 +5,7 @@ node_modules
 *.d.ts
 *.js
 module
+data
 code.js
 !protobuf.min.js
 !protobuf.min.d.ts
