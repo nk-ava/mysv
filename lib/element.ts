@@ -8,10 +8,11 @@ import {
 	LinkMsg,
 	LinkRoomMsg,
 	MentionedInfo,
-	MsgContentInfo, Panel, PreviewLinkMsg, TextMsg
+	MsgContentInfo, Panel, PreviewLinkMsg, RobotCardMsg, TextMsg, VillaCardMsg
 } from "./message";
 import {Bot, RobotRunTimeError} from "./bot";
 import {Villa} from "./villa";
+import * as fs from "fs";
 
 export interface Text {
 	type: 'text'
@@ -35,11 +36,13 @@ export interface Template {
 export interface RobotCard {
 	type: 'robot'
 	id: string
+	name?: string
 }
 
 export interface VillaCard {
 	type: 'villa'
-	id: string
+	id: number | string
+	name?: string
 }
 
 export interface Button {
@@ -142,8 +145,8 @@ export class Msg {
 	private readonly villa_id: number
 	private readonly c: Bot
 	private post_id!: string
-	private villa_card!: string
-	private robot_card!: string
+	private villa_card!: VillaCardMsg
+	private robot_card!: RobotCardMsg
 	private img!: ImageMsg
 	private t: string
 	private brief: string
@@ -185,6 +188,10 @@ export class Msg {
 				await this[m.type](m)
 			} catch (e) {
 				this.c.logger.error(`消息{type: ${m.type}}转换失败,reason ${(e as Error).message}`)
+				if ((e as Error).message.includes("登录失效")) {
+					fs.unlink(`${this.c.config.data_dir}/cookie`, () => {})
+					this.c.config.mys_ck = ""
+				}
 			}
 		}
 		return this
@@ -198,11 +205,11 @@ export class Msg {
 			}
 		} as MsgContentInfo
 		if (this.robot_card) {
-			tmg.content = {bot_id: this.robot_card}
+			tmg.content = this.robot_card
 			this.brief = `[分享机器人](${this.robot_card})`
 			this.obj_name = 'MHY:RobotCard'
 		} else if (this.villa_card) {
-			tmg.content = {villa_id: this.villa_card}
+			tmg.content = this.villa_card
 			this.brief = `[分享别野](${this.villa_card})`
 			this.obj_name = 'MHY:VillaCard'
 		} else if (this.post_id) {
@@ -451,12 +458,16 @@ export class Msg {
 
 	private villa(m: VillaCard) {
 		if (this.villa_card) return
-		this.villa_card = String(m.id)
+		this.villa_card = {} as VillaCardMsg
+		m.id && (this.villa_card.villa_id = String(m.id))
+		m.name && (this.villa_card.villa_name = String(m.name))
 	}
 
 	private robot(m: RobotCard) {
 		if (this.robot_card) return
-		this.robot_card = m.id
+		this.robot_card = {} as RobotCardMsg
+		m.id && (this.robot_card.bot_id = m.id)
+		m.name && (this.robot_card.name = String(m.name))
 	}
 
 	private style(obj: any, len: number) {

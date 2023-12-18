@@ -56,11 +56,13 @@ export interface TextMsg {
 /** 分享别野卡片 */
 export interface VillaCardMsg {
 	villa_id: string
+	villa_name?: string
 }
 
 /** 分享机器人卡片 */
 export interface RobotCardMsg {
 	bot_id: string
+	name?: string
 }
 
 /** 图片消息 */

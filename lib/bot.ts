@@ -1,7 +1,7 @@
 import * as log4js from "log4js";
 import crypto from "crypto";
-import axios, {AxiosResponse} from "axios";
-import {Encode, fetchQrCode, getHeaders, lock, md5Stream, TMP_PATH} from "./common"
+import axios from "axios";
+import {Encode, getMysCk, lock, md5Stream, TMP_PATH} from "./common"
 import EventEmitter from "node:events";
 import {verifyPKCS1v15} from "./verify";
 import {
@@ -24,7 +24,6 @@ import {Perm, Villa, VillaInfo} from "./villa";
 import {Readable} from "node:stream";
 import {WsClient} from "./ws";
 import {HttpClient} from "./http";
-import {UClient} from "./uClient";
 
 const pkg = require("../package.json")
 
@@ -85,7 +84,7 @@ export interface Config {
 	pub_key: string
 
 	/** logger配置，默认info */
-	level?: LogLevel
+	log_level?: LogLevel
 
 	/** 启动的端口号，默认8081 */
 	port?: number
@@ -97,9 +96,6 @@ export interface Config {
 
 	/** 测试别野id，如果机器人未上线，则需要填入测试别野id，否则无法使用ws */
 	villa_id?: number
-
-	/** 是否用户登入 */
-	user_login?: boolean
 
 	/**
 	 * 米游社上传图片需要ck，因为不是调用的官方开发api，后续补上官方开发api
@@ -124,7 +120,6 @@ export class Bot extends EventEmitter {
 	private readonly enSecret: string
 	private readonly jwkKey: crypto.JsonWebKey | undefined
 	private [INTERVAL]!: NodeJS.Timeout
-	private uClient!: UClient
 	private statistics = {
 		start_time: Date.now(),
 		send_msg_cnt: 0,
@@ -138,17 +133,15 @@ export class Bot extends EventEmitter {
 	readonly vl = new Map<number, VillaInfo>()
 	private client: HttpClient | WsClient | undefined;
 	private keepAlive: boolean
-	private keepUseAlive: boolean
 
 	public handler: Map<string, Function>
 
 	constructor(props: Config) {
 		super();
 		this.config = {
-			level: 'info',
+			log_level: 'info',
 			is_verify: true,
 			villa_id: 0,
-			user_login: false,
 			...props
 		}
 		if (!this.config?.pub_key?.length) throw new RobotRunTimeError(-1, '未配置公钥，请配置后重试')
@@ -161,11 +154,10 @@ export class Bot extends EventEmitter {
 		if (!this.config.ws) this.jwkKey = this.pubKey.export({format: "jwk"})
 		this.enSecret = this.encryptSecret()
 		this.logger = log4js.getLogger(`[BOT_ID:${this.config.bot_id}]`)
-		this.logger.level = this.config.level as LogLevel
+		this.logger.level = this.config.log_level as LogLevel
 		this.keepAlive = true
-		this.keepUseAlive = true
 		this.printPkgInfo()
-		if (this.config.mys_ck === "" || this.config.user_login) this.getMysCk((ck: string) => {
+		if (this.config.mys_ck === "") getMysCk.call(this, (ck: string) => {
 			this.config.mys_ck = ck
 			fs.writeFile(`${this.config.data_dir}/cookie`, ck, () => {})
 			this.run().then(() => this.emit("online"))
@@ -185,27 +177,26 @@ export class Bot extends EventEmitter {
 		return this.statistics
 	}
 
+	get interval() {
+		return this[INTERVAL]
+	}
+
+	set interval(i: NodeJS.Timeout) {
+		this[INTERVAL] = i
+	}
+
 	private run() {
 		return new Promise(resolve => {
-			const runs = () => {
-				if (this.config.ws) {
-					this.newWsClient(resolve).then()
-				} else {
-					this.client = new HttpClient(this, this.config, resolve)
-				}
+			if (this.config.ws) {
+				this.newWsClient(resolve).then()
+			} else {
+				this.client = new HttpClient(this, this.config, resolve)
 			}
-			if (this.config.user_login) {
-				this.newUClient(runs).then()
-			} else runs()
 		})
 	}
 
 	setKeepAlive(k: boolean) {
 		this.keepAlive = k
-	}
-
-	setUseAlive(s: boolean) {
-		this.keepUseAlive = s
 	}
 
 	private async newWsClient(cb: Function) {
@@ -225,87 +216,6 @@ export class Bot extends EventEmitter {
 				await this.newWsClient(cb)
 			}, 5000)
 		}
-	}
-
-	private async newUClient(cb: Function) {
-		try {
-			this.uClient = await UClient.new(this, cb)
-			this.uClient.on("close", async (code, reason) => {
-				this.uClient.destroy()
-				if (!this.keepUseAlive) return
-				this.logger.error(`uclient连接已断开，reason ${reason.toString() || 'unknown'}(${code})，5秒后将自动重连...`)
-				setTimeout(async () => {
-					await this.newUClient(cb)
-				}, 5000)
-			})
-		} catch (err) {
-			if ((err as Error).message.includes("not login")) {
-				this.logger.error("mys_ck已失效，请重新删除cookie后扫码登入")
-				fs.unlinkSync(`${this.config.data_dir}/cookie`)
-				return
-			}
-			this.logger.error(`${(err as Error).message || "uclient建立连接失败"}, 5秒后将自动重连...`)
-			setTimeout(async () => {
-				await this.newUClient(cb)
-			}, 5000)
-		}
-	}
-
-	private getMysCk(cb: Function) {
-		if (!fs.existsSync(`${this.config.data_dir}/cookie`)) fs.writeFileSync(`${this.config.data_dir}/cookie`, "")
-		let ck: string = fs.readFileSync(`${this.config.data_dir}/cookie`, "utf-8")
-		if (ck && ck !== "") {
-			cb(ck)
-			return
-		}
-		const handler = async (data: Buffer) => {
-			clearInterval(this[INTERVAL])
-			this._QrCodeLogin().then()
-		}
-		process.stdin.on("data", handler)
-		this.on("qrLogin.success", ck => {
-			this.logger.info("二维码扫码登入成功")
-			process.stdin.off("data", handler)
-			cb(ck)
-		})
-		this.on("qrLogin.error", e => {
-			this.logger.error("登入失败：reason " + e)
-		})
-		this._QrCodeLogin().then()
-	}
-
-	private async _QrCodeLogin() {
-		const {img, ticket} = await fetchQrCode.call(this);
-		console.log("请用米游社扫描二维码，回车刷新二维码")
-		console.log(`二维码已保存到${img}`)
-		this[INTERVAL] = setInterval(async () => {
-			this.logger.debug('请求二维码状态...')
-			const res: AxiosResponse = await axios.post("https://passport-api.miyoushe.com/account/ma-cn-passport/web/queryQRLoginStatus?ticket=" + ticket, {}, {
-				headers: getHeaders()
-			})
-			let status = res?.data
-			if (!status) return
-			if (status.message !== 'OK') {
-				this.emit("qrLogin.error", status?.message || "unknown")
-				clearInterval(this[INTERVAL])
-				return
-			}
-			status = status?.data?.status
-			if (!status) return
-			if (status === 'Confirmed') {
-				const set_cookie = res.headers["set-cookie"]
-				if (!set_cookie) {
-					this.emit("qrLogin.error", "没有获取到cookie, 请刷新重试")
-					clearInterval(this[INTERVAL])
-					return
-				}
-				let cookie = ""
-				for (let ck of set_cookie) cookie += ck.split("; ")[0] + "; "
-				if (cookie === "") this.emit("qrLogin.error", "获取到的cookie为空，请刷新二维码重新获取")
-				else this.emit("qrLogin.success", cookie)
-				clearInterval(this[INTERVAL])
-			}
-		}, 1000)
 	}
 
 	/** 输出包信息 */
@@ -488,10 +398,6 @@ export class Bot extends EventEmitter {
 	/** ws退出登入，只有回调是ws才有用 */
 	async logout() {
 		if (this.client instanceof WsClient) {
-			if (this.config.user_login) {
-				this.keepUseAlive = false
-				this.uClient.close()
-			}
 			if (!(await (this.client as WsClient).doPLogout())) {
 				this.logger.warn("本地将直接关闭连接...")
 				this.keepAlive = false

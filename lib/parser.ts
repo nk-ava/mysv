@@ -11,9 +11,24 @@ import {
 import {MessageRet} from "./event/baseEvent";
 import {Quotable, Bot} from "./bot";
 import {Villa, VillaInfo} from "./villa";
-import {At, Badge, Button, CType, Elem, Image, Link, LinkRoom, PreviewLink, Template, Text} from "./element";
+import {
+	At,
+	Badge,
+	Button,
+	CType,
+	Elem,
+	Image,
+	Link,
+	LinkRoom, Post,
+	PreviewLink,
+	RobotCard,
+	Template,
+	Text,
+	VillaCard
+} from "./element";
 import {Entity} from "./message";
 import {User} from "./event/cbEvents";
+import {UClient} from "./uClient";
 
 export type Events = JoinVilla | SendMessage | CreateBot | DeleteBot | AddQuickEmoticon | AuditCallback
 
@@ -31,30 +46,32 @@ const auditResult = ["None", "Pass", "Reject"]
 const objName = ["UnknownObjectName", "Text", "Post"]
 
 export default class Parser {
-	public event_type: string
-	private readonly baseEvent: BaseEvent
+	public event_type!: string
+	private readonly baseEvent!: BaseEvent
 	private readonly event_data: any
-	private readonly c: Bot
+	private readonly c: Bot | UClient
 
-	constructor(c: Bot, event: any) {
+	constructor(c: Bot | UClient, event?: any) {
 		this.c = c
-		this.event_type = et[event.type] || event.type
-		this.baseEvent = {
-			source: {
-				villa_id: Number(event.robot.villa_id),
-				bot: event.robot.template
-			},
-			id: event.id,
-			created_time: Number(event.created_at),
-			send_time: Number(event.send_at)
+		if (event) {
+			this.event_type = et[event.type] || event.type
+			this.baseEvent = {
+				source: {
+					villa_id: Number(event.robot.villa_id),
+					bot: event.robot.template
+				},
+				id: event.id,
+				created_time: Number(event.created_at),
+				send_time: Number(event.send_at)
+			}
+			this.event_data = event?.extend_data?.EventData || event?.extend_data
 		}
-		this.event_data = event?.extend_data?.EventData || event?.extend_data
 	}
 
 	async doParse(): Promise<Array<Events>> {
 		const es: [string, any][] = Object.entries(this.event_data)
 		const rs = new Array<Events>()
-		let info = await Villa.getInfo(this.c, this.baseEvent.source.villa_id) as VillaInfo
+		let info = await Villa.getInfo((this.c as Bot), this.baseEvent.source.villa_id) as VillaInfo
 		this.baseEvent.source.villa_name = info.name
 		for (let [k, v] of es) {
 			switch (k) {
@@ -97,7 +114,7 @@ export default class Parser {
 								message_id: v.msg_uid,
 								send_time: Number(v.send_at)
 							}
-							return this.c.sendMsg(v.room_id, this.baseEvent.source.villa_id, content, quote ? q : undefined)
+							return (this.c as Bot).sendMsg(v.room_id, this.baseEvent.source.villa_id, content, quote ? q : undefined)
 						}
 					} as SendMessage)
 					this.c.logger.info(`recv from: [Villa: ${info.name || "unknown"}(${this.baseEvent.source.villa_id}), Member: ${v.nickname}(${v.from_user_id})] ${msg}`)
@@ -114,8 +131,8 @@ export default class Parser {
 					rs.push({
 						...this.baseEvent
 					})
-					this.c.logger.info(`机器人 ${this.baseEvent.source.bot.name}(${this.baseEvent.source.bot.id})被移出大别野[${info.name || "unknown"}](${this.baseEvent.source.villa_id})`)
-					this.c.vl.delete(this.baseEvent.source.villa_id)
+					this.c.logger.info(`机器人 ${this.baseEvent.source.bot.name}(${this.baseEvent.source.bot.id})被移出大别野[${info.name || "unknown"}](${this.baseEvent.source.villa_id})`);
+					(this.c as Bot).vl.delete(this.baseEvent.source.villa_id)
 					break
 				case "AddQuickEmoticon":
 				case "add_quick_emoticon":
@@ -129,10 +146,10 @@ export default class Parser {
 						bot_msg_id: v.bot_msg_id,
 						is_cancel: v.is_cancel,
 						reply: (content: Elem | Elem[]): Promise<MessageRet> => {
-							return this.c.sendMsg(v.room_id, this.baseEvent.source.villa_id, content)
+							return (this.c as Bot).sendMsg(v.room_id, this.baseEvent.source.villa_id, content)
 						}
 					} as AddQuickEmoticon)
-					const member = await (await Villa.get(this.c, this.baseEvent.source.villa_id))?.getMemberInfo(v.uid)
+					const member = await (await Villa.get((this.c as Bot), this.baseEvent.source.villa_id))?.getMemberInfo(v.uid)
 					this.c.logger.info(`recv from: [Villa: ${info.name || "unknown"}(${this.baseEvent.source.villa_id}), Member: ${member?.basic?.nickname || "unknown"}(${v.uid})] [${v.is_cancel ? '取消' : '回复'}快捷表情]${v.emoticon}`)
 					break
 				case "AuditCallback":
@@ -146,11 +163,11 @@ export default class Parser {
 						pass_through: v.pass_through,
 						audit_result: typeof v.audit_result === 'string' ? v.audit_result : (v.audit_result = auditResult[Number(v.audit_result)]),
 						reply: (content: Elem | Elem[]): Promise<MessageRet> => {
-							return this.c.sendMsg(v.room_id, this.baseEvent.source.villa_id, content)
+							return (this.c as Bot).sendMsg(v.room_id, this.baseEvent.source.villa_id, content)
 						}
 					} as AuditCallback)
-					this.c.logger.info(`${v.audit_id}审核结果：${v.audit_result}`)
-					this.c.handler.get(v.audit_id)?.(v.audit_result)
+					this.c.logger.info(`${v.audit_id}审核结果：${v.audit_result}`);
+					(this.c as Bot).handler.get(v.audit_id)?.(v.audit_result)
 					break
 				case "ClickMsgComponent":
 				case "click_msg_component":
@@ -164,10 +181,10 @@ export default class Parser {
 						template_id: v.template_id || 0,
 						extra: v.extra,
 						reply: (content: Elem | Elem[]): Promise<MessageRet> => {
-							return this.c.sendMsg(v.room_id, this.baseEvent.source.villa_id, content)
+							return (this.c as Bot).sendMsg(v.room_id, this.baseEvent.source.villa_id, content)
 						}
 					} as ClickMsgComponent)
-					const mem = await (await Villa.get(this.c, this.baseEvent.source.villa_id))?.getMemberInfo(v.uid)
+					const mem = await (await Villa.get((this.c as Bot), this.baseEvent.source.villa_id))?.getMemberInfo(v.uid)
 					this.c.logger.info(`recv from: [Villa: ${info.name || "unknown"}(${this.baseEvent.source.villa_id}), Member: ${mem?.basic?.nickname || "unknown"}(${v.uid})] 点击消息组件${v.component_id}`)
 					break
 			}
@@ -176,8 +193,68 @@ export default class Parser {
 		return rs
 	}
 
+	doPtParse(proto: any) {
+		const obj_name = proto[4]
+		if (/^MHY:((SYS)|(SIG)):.*$/.test(obj_name)) return
+		const content = JSON.parse(proto[5])
+		let src = proto[13]
+		if (src) src = JSON.parse(src)
+		const source = proto[18]?.[1]?.split("|")
+		const m = proto[16]?.split("：")
+		const msg = {
+			from_uid: Number(proto[1]) || proto[1],
+			villa_id: Number(proto[3]),
+			obj_name: obj_name,
+			message: this.parseContent(content.content, content.panel),
+			send_time: Number(proto[6]),
+			msg_id: proto[9],
+			src: src.osSrc || "unknown",
+			msg: m[1] || "",
+			nickname: m[0] || "unknown",
+			villa_name: source[0].trim() || "unknown",
+			room_name: source[1].trim() || "unknown",
+			extra: JSON.parse(proto[15]),
+			room_id: Number(proto[19])
+		}
+		this.c.logger.info(`recv from: [Villa: ${msg.villa_name || "unknown"}(${msg.villa_id}), Member: ${msg.nickname}(${msg.from_uid})] ${msg.msg}`)
+		this.c.emit("message", msg)
+	}
+
 	/** 米游社用户暂时只能对机器人发送MHY:Text类型消息，所以暂时只解析MYH：Text类型消息和组件消息 */
 	private parseContent(content: any, panel?: any): Elem[] {
+		/** 解析MHY：RobotCard */
+		if (content.bot_id) {
+			return [{
+				type: "robot",
+				id: content.bot_id,
+				name: content.name
+			} as RobotCard]
+		}
+		/** 解析MHY：VillaCard */
+		if (content.villa_id) {
+			return [{
+				type: "villa",
+				id: Number(content.villa_id),
+				name: content.villa_name
+			} as VillaCard]
+		}
+		/** 解析MHY：Image */
+		if (content.url) {
+			return [{
+				type: 'image',
+				file: content.url,
+				...content?.size,
+				size: content.file_size
+			} as Image]
+		}
+		/** 解析MHY：Post */
+		if (content.post_id) {
+			return [{
+				type: 'post',
+				id: Number(content.post_id)
+			} as Post]
+		}
+		/** 解析MHY：Text */
 		const rs: Elem[] = []
 		const text = content.text
 		const entities = content.entities as Array<Entity>
@@ -185,7 +262,8 @@ export default class Parser {
 		const preview = content?.preview_link
 		const badge = content?.badge
 		let now = 0
-		entities.sort((x, y) => (x?.offset || 0) - (y?.offset || 0))
+		if (!entities) return []
+		entities?.sort((x, y) => (x?.offset || 0) - (y?.offset || 0))
 		for (let i = 0; i < entities.length; i++) {
 			const entity = {
 				entity: [entities[i].entity],
@@ -208,7 +286,7 @@ export default class Parser {
 					now = entity.offset || 0
 				}
 				if (e.type === "mentioned_robot") {
-					if (e.bot_id === this.c.config.bot_id) {
+					if (e.bot_id === (this.c as Bot)?.config?.bot_id) {
 						elem = undefined
 						continue
 					}

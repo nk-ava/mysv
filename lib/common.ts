@@ -6,6 +6,7 @@ import qr, {Bitmap} from "qr-image"
 import {promisify} from "util";
 import axios, {AxiosResponse} from "axios";
 import fs from "node:fs";
+import {UClient} from "./uClient";
 
 export const UintSize = 32 << (~0 >>> 63)
 export const _W = UintSize - 1
@@ -237,7 +238,7 @@ export function localIP(): string | undefined {
 }
 
 /** 获取二维码 */
-export async function fetchQrCode(this: Bot) {
+export async function fetchQrCode(this: Bot | UClient) {
 	let res = await axios.post("https://passport-api.miyoushe.com/account/ma-cn-passport/web/createQRLogin", {}, {
 		headers: getHeaders()
 	})
@@ -252,7 +253,7 @@ export async function fetchQrCode(this: Bot) {
 		size: 1,
 		customize: logQrcode
 	})
-	const f = `./data/${this.config.bot_id}/mysQr.png`
+	const f = `${this.config.data_dir}/mysQr.png`
 	await promisify(stream.pipeline)(io, fs.createWriteStream(f));
 	return {img: f, ticket: info.ticket}
 }
@@ -297,6 +298,74 @@ export function getHeaders() {
 		'X-Rpc-Device_os': 'Windows%2010%2064-bit',
 		'X-Rpc-Game_biz': 'bbs_cn'
 	}
+}
+
+/** 获取米游社cookie */
+export function getMysCk(this: any, cb: Function) {
+	if (fs.existsSync(`${this.config.data_dir}/cookie`)) {
+		const ck = fs.readFileSync(`${this.config.data_dir}/cookie`, "utf-8")
+		if (ck && ck !== "") {
+			cb(ck)
+			return
+		}
+	}
+	const handler = async (data: Buffer) => {
+		clearInterval(this.interval)
+		_QrCodeLogin.call(this).then()
+	}
+	process.stdin.on("data", handler)
+	this.on("qrLogin.success", (ck: any) => {
+		this.logger.info("二维码扫码登入成功")
+		process.stdin.off("data", handler)
+		cb(ck)
+	})
+	this.on("qrLogin.error", (e: any) => {
+		this.logger.error("登入失败：reason " + e)
+	})
+	_QrCodeLogin.call(this).then()
+}
+
+async function _QrCodeLogin(this: Bot | UClient) {
+	const {img, ticket} = await fetchQrCode.call(this);
+	console.log("请用米游社扫描二维码，回车刷新二维码")
+	console.log(`二维码已保存到${img}`)
+	this.interval = setInterval(async () => {
+		this.logger.debug('请求二维码状态...')
+		const res: AxiosResponse = await axios.post("https://passport-api.miyoushe.com/account/ma-cn-passport/web/queryQRLoginStatus?ticket=" + ticket, {}, {
+			headers: getHeaders()
+		})
+		let status = res?.data
+		if (!status) return
+		if (status.message !== 'OK') {
+			this.emit("qrLogin.error", status?.message || "unknown")
+			clearInterval(this.interval)
+			return
+		}
+		status = status?.data?.status
+		if (!status) return
+		if (status === 'Confirmed') {
+			const set_cookie = res.headers["set-cookie"]
+			if (!set_cookie) {
+				this.emit("qrLogin.error", "没有获取到cookie, 请刷新重试")
+				clearInterval(this.interval)
+				return
+			}
+			let cookie = ""
+			for (let ck of set_cookie) cookie += ck.split("; ")[0] + "; "
+			if (cookie === "") this.emit("qrLogin.error", "获取到的cookie为空，请刷新二维码重新获取")
+			else this.emit("qrLogin.success", cookie)
+			clearInterval(this.interval)
+		}
+	}, 1000)
+}
+
+/** clientUniqueId */
+export function ZO(Un = 0) {
+	let e = ((4294967295 & Date.now()) >>> 0).toString(2)
+		, t = Math.floor(Math.random() * (Math.pow(2, 20) - 1))
+		, n = e + Un.toString(2).padStart(11, "0") + t.toString(2).padStart(20, "0");
+	return Un = 2047 & ++Un,
+		parseInt(n, 2)
 }
 
 function shouldEscape(s: string): boolean {

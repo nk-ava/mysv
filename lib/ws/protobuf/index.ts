@@ -6,25 +6,32 @@ export interface Encodable {
 
 export class Proto implements Encodable {
 	[tag: number]: any
+
 	get length() {
 		return this.encoded.length
 	}
+
 	constructor(private encoded: Buffer, decoded?: Proto) {
 		if (decoded)
 			Reflect.setPrototypeOf(this, decoded)
 	}
+
 	toString() {
 		return this.encoded.toString()
 	}
+
 	toHex() {
 		return this.encoded.toString("hex")
 	}
+
 	toBase64() {
 		return this.encoded.toString("base64")
 	}
+
 	toBuffer() {
 		return this.encoded
 	}
+
 	[Symbol.toPrimitive]() {
 		return this.toString()
 	}
@@ -57,18 +64,18 @@ function _encode(writer: pb.Writer, tag: number, value: any) {
 	const head = tag << 3 | type
 	writer.uint32(head)
 	switch (type) {
-	case 0:
-		if (value < 0)
-			writer.sint64(value)
-		else
-			writer.int64(value)
-		break
-	case 2:
-		writer.bytes(value)
-		break
-	case 1:
-		writer.double(value)
-		break
+		case 0:
+			if (value < 0)
+				writer.sint64(value)
+			else
+				writer.int64(value)
+			break
+		case 2:
+			writer.bytes(value)
+			break
+		case 1:
+			writer.double(value)
+			break
 	}
 }
 
@@ -103,24 +110,25 @@ export function decode(encoded: Buffer): Proto {
 		const tag = k >> 3, type = k & 0b111
 		let value, decoded
 		switch (type) {
-		case 0:
-			value = long2int(reader.int64())
-			break
-		case 1:
-			value = long2int(reader.fixed64())
-			break
-		case 2:
-			value = Buffer.from(reader.bytes())
-			try {
-				decoded = decode(value)
-			} catch { }
-			value = new Proto(value, decoded)
-			break
-		case 5:
-			value = reader.fixed32()
-			break
-		default:
-			return null as any
+			case 0:
+				value = long2int(reader.int64())
+				break
+			case 1:
+				value = long2int(reader.fixed64())
+				break
+			case 2:
+				value = Buffer.from(reader.bytes())
+				try {
+					decoded = decode(value)
+				} catch {
+				}
+				value = new Proto(value, decoded)
+				break
+			case 5:
+				value = reader.fixed32()
+				break
+			default:
+				return null as any
 		}
 		if (Array.isArray(result[tag])) {
 			result[tag].push(value)
@@ -132,4 +140,22 @@ export function decode(encoded: Buffer): Proto {
 		}
 	}
 	return result
+}
+
+export function deepDecode(encoded: Buffer, type?: any) {
+	let proto: any
+	try {
+		if (type === "string") return encoded.toString()
+		proto = decode(encoded)
+	} catch {
+		return encoded.toString()
+	}
+	if (!proto) return encoded.toString()
+	delete proto["encoded"]
+	const keys = Object.keys(proto)
+	for (let k of keys) {
+		if (proto[Number(k)] instanceof Proto)
+			proto[Number(k)] = deepDecode(proto[Number(k)]["encoded"], type?.[Number(k)])
+	}
+	return proto
 }
