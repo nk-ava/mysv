@@ -1,7 +1,7 @@
 import * as log4js from "log4js";
 import crypto from "crypto";
 import axios from "axios";
-import {Encode, getMysCk, lock, md5Stream, TMP_PATH} from "./common"
+import {Encode, getMysCk, lock, md5Stream, TMP_PATH, uploadImageWithCk} from "./common"
 import EventEmitter from "node:events";
 import {verifyPKCS1v15} from "./verify";
 import {
@@ -11,11 +11,11 @@ import {
 	CreateBot,
 	DeleteBot,
 	JoinVilla,
-	SendMessage
+	SendMessage,
+	MessageRet
 } from "./event";
 import {C} from "./user";
-import {MsgContentInfo, Panel, QuoteInfo} from "./message";
-import {MessageRet} from "./event/baseEvent";
+import {MsgContentInfo, Panel, QuoteInfo, Quotable} from "./message";
 import stream from "stream";
 import FormData from "form-data";
 import fs from "fs";
@@ -32,13 +32,6 @@ export class RobotRunTimeError {
 		this.code = code
 		this.message = message
 	}
-}
-
-export interface Quotable {
-	/** 引用消息的消息id */
-	message_id: string
-	/** 引用消息发送的时间 */
-	send_time: number
 }
 
 export interface Bot {
@@ -527,52 +520,11 @@ export class Bot extends EventEmitter {
 			this.logger.mark('将使用米游社上传接口，请确定已配置mys_ck')
 			if (!readable.closed) readable.close(() => {})
 			readable = fs.createReadStream(file)
-			url = await this._uploadImageWithCk(readable, ext)
+			url = await uploadImageWithCk.call(this, readable, ext);
 		} finally {
 			if (!readable.closed) readable.close(() => {})
 		}
 		return url
-	}
-
-	private async _uploadImageWithCk(readable: stream.Readable, e: string | undefined): Promise<string> {
-		if (!this.config.mys_ck) throw new RobotRunTimeError(-3, "未配置mys_ck，无法调用上传接口")
-		if (!readable.readable) throw new RobotRunTimeError(-1, "The first argument is not readable stream")
-		/** 支持jpg,jpeg,png,gif,bmp **/
-		const ext = e || 'png';
-		const file = await md5Stream(readable);
-		const md5 = file.md5.toString("hex");
-		const {data} = await axios.post(
-			`https://bbs-api.miyoushe.com/apihub/wapi/getUploadParams`, {
-				biz: 'community',
-				ext: ext,
-				md5: md5,
-				extra: {
-					upload_source: "UPLOAD_SOURCE_COMMUNITY"
-				},
-				support_content_type: true
-			}, {
-				headers: {
-					"cookie": this.config.mys_ck
-				}
-			})
-		if (!data.data) throw new RobotRunTimeError(-3, data.message)
-		const param = data.data
-		const form = new FormData();
-		form.append("x:extra", param.params['callback_var']['x:extra']);
-		form.append("OSSAccessKeyId", param.params.accessid);
-		form.append("signature", param.params.signature);
-		form.append("success_action_status", '200');
-		form.append("name", param.file_name);
-		form.append("callback", param.params.callback);
-		form.append("x-oss-content-type", param.params.x_oss_content_type);
-		form.append("key", param.file_name);
-		form.append("policy", param.params.policy);
-		form.append("file", file.buff, {filename: param.params.name});
-		const result = (await axios.post(param.params.host, form, {
-			headers: {...form.getHeaders(), "Connection": 'Keep-Alive', "Accept-Encoding": "gzip"}
-		})).data
-		if (!result.data) throw new RobotRunTimeError(-3, result.message)
-		return result.data.url
 	}
 
 	private async _uploadImageApi(readable: stream.Readable, e: string | undefined, villa_id?: number): Promise<string> {

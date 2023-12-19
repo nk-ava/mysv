@@ -1,15 +1,9 @@
 import {
-	JoinVilla,
-	SendMessage,
-	CreateBot,
-	DeleteBot,
-	AddQuickEmoticon,
-	AuditCallback,
-	BaseEvent,
-	ClickMsgComponent
+	JoinVilla, SendMessage, CreateBot, DeleteBot,
+	AddQuickEmoticon, AuditCallback, BaseEvent,
+	ClickMsgComponent, MessageRet, User
 } from "./event";
-import {MessageRet} from "./event/baseEvent";
-import {Quotable, Bot} from "./bot";
+import {Bot} from "./bot";
 import {Villa, VillaInfo} from "./villa";
 import {
 	At,
@@ -26,9 +20,9 @@ import {
 	Text,
 	VillaCard
 } from "./element";
-import {Entity} from "./message";
-import {User} from "./event/cbEvents";
+import {Entity, Quotable} from "./message";
 import {UClient} from "./uClient";
+import {Message} from "./core";
 
 export type Events = JoinVilla | SendMessage | CreateBot | DeleteBot | AddQuickEmoticon | AuditCallback
 
@@ -193,7 +187,7 @@ export default class Parser {
 		return rs
 	}
 
-	doPtParse(proto: any) {
+	doPtParse(proto: any): Message | undefined {
 		const obj_name = proto[4]
 		if (/^MHY:((SYS)|(SIG)):.*$/.test(obj_name)) return
 		const content = JSON.parse(proto[5])
@@ -201,23 +195,27 @@ export default class Parser {
 		if (src) src = JSON.parse(src)
 		const source = proto[18]?.[1]?.split("|")
 		const m = proto[16]?.split("：")
-		const msg = {
+		return {
 			from_uid: Number(proto[1]) || proto[1],
-			villa_id: Number(proto[3]),
 			obj_name: obj_name,
+			user: content.user,
+			source: {
+				villa_id: Number(proto[3]),
+				room_id: Number(proto[19]),
+				villa_name: source?.[0]?.trim() || "unknown",
+				room_name: source?.[1]?.trim() || "unknown",
+			},
+			quote: content.quote ? {
+				send_time: content?.quote?.quoted_message_send_time,
+				message_id: content?.quote?.quoted_message_id
+			} : undefined,
 			message: this.parseContent(content.content, content.panel),
 			send_time: Number(proto[6]),
 			msg_id: proto[9],
 			src: src.osSrc || "unknown",
-			msg: m[1] || "",
-			nickname: m[0] || "unknown",
-			villa_name: source[0].trim() || "unknown",
-			room_name: source[1].trim() || "unknown",
-			extra: JSON.parse(proto[15]),
-			room_id: Number(proto[19])
-		}
-		this.c.logger.info(`recv from: [Villa: ${msg.villa_name || "unknown"}(${msg.villa_id}), Member: ${msg.nickname}(${msg.from_uid})] ${msg.msg}`)
-		this.c.emit("message", msg)
+			msg: m?.[1] || content.content.text || "",
+			nickname: m?.[0] || content.user.name || "unknown"
+		} as Message
 	}
 
 	/** 米游社用户暂时只能对机器人发送MHY:Text类型消息，所以暂时只解析MYH：Text类型消息和组件消息 */

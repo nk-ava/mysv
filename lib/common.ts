@@ -7,6 +7,7 @@ import {promisify} from "util";
 import axios, {AxiosResponse} from "axios";
 import fs from "node:fs";
 import {UClient} from "./uClient";
+import FormData from "form-data";
 
 export const UintSize = 32 << (~0 >>> 63)
 export const _W = UintSize - 1
@@ -242,10 +243,10 @@ export async function fetchQrCode(this: Bot | UClient) {
 	let res = await axios.post("https://passport-api.miyoushe.com/account/ma-cn-passport/web/createQRLogin", {}, {
 		headers: getHeaders()
 	})
-	if (!res.data) throw new RobotRunTimeError(-1, "请求二维码失败")
+	if (!res.data) throw new Error("请求二维码失败")
 	res = res.data
 	let info = res?.data
-	if (!info) throw new RobotRunTimeError(-1, "请求二维码失败")
+	if (!info) throw new Error("请求二维码失败")
 	const io = qr.image(info.url, {
 		type: 'png',
 		ec_level: 'H',
@@ -366,6 +367,48 @@ export function ZO(Un = 0) {
 		, n = e + Un.toString(2).padStart(11, "0") + t.toString(2).padStart(20, "0");
 	return Un = 2047 & ++Un,
 		parseInt(n, 2)
+}
+
+/** 使用cookie上传图片 */
+export async function uploadImageWithCk(this: Bot | UClient, readable: stream.Readable, e: string | undefined): Promise<string> {
+	if (!this.config.mys_ck) throw new Error("未配置mys_ck，无法调用上传接口")
+	if (!readable.readable) throw new Error("The first argument is not readable stream")
+	/** 支持jpg,jpeg,png,gif,bmp **/
+	const ext = e || 'png';
+	const file = await md5Stream(readable);
+	const md5 = file.md5.toString("hex");
+	const {data} = await axios.post(
+		`https://bbs-api.miyoushe.com/apihub/wapi/getUploadParams`, {
+			biz: 'community',
+			ext: ext,
+			md5: md5,
+			extra: {
+				upload_source: "UPLOAD_SOURCE_COMMUNITY"
+			},
+			support_content_type: true
+		}, {
+			headers: {
+				"cookie": this.config.mys_ck
+			}
+		})
+	if (!data.data) throw new Error(data.message)
+	const param = data.data
+	const form = new FormData();
+	form.append("x:extra", param.params['callback_var']['x:extra']);
+	form.append("OSSAccessKeyId", param.params.accessid);
+	form.append("signature", param.params.signature);
+	form.append("success_action_status", '200');
+	form.append("name", param.file_name);
+	form.append("callback", param.params.callback);
+	form.append("x-oss-content-type", param.params.x_oss_content_type);
+	form.append("key", param.file_name);
+	form.append("policy", param.params.policy);
+	form.append("file", file.buff, {filename: param.params.name});
+	const result = (await axios.post(param.params.host, form, {
+		headers: {...form.getHeaders(), "Connection": 'Keep-Alive', "Accept-Encoding": "gzip"}
+	})).data
+	if (!result.data) throw new Error(result.message)
+	return result.data.url
 }
 
 function shouldEscape(s: string): boolean {

@@ -1,3 +1,7 @@
+import {UClient} from "../uClient"
+import * as crypto from "crypto";
+import * as fs from "fs";
+
 function genDeviceId() {
 	let e = Sr();
 	if (e = "".concat(e.replace(/-/g, ""), "a"),
@@ -28,19 +32,43 @@ function Sr() {
 }
 
 export interface Device {
-	deviceId: string
-	model: string
-	platform: string
-	timestamp: number
-	version: string
+	config: {
+		deviceId: string
+		model: string
+		platform: string
+		timestamp: number
+		version: string
+	}
+	device_fp: string
 }
 
 export function genDeviceConfig(): Device {
 	return {
-		deviceId: genDeviceId(),
-		model: "Web|Chrome|119.0.0.0",
-		platform: "web",
-		timestamp: 0,
-		version: "5.9.0"
+		config: {
+			deviceId: genDeviceId(),
+			model: "Web|Chrome|119.0.0.0",
+			platform: "web",
+			timestamp: 0,
+			version: "5.9.0"
+		},
+		device_fp: crypto.randomUUID()
+	}
+}
+
+function getUuid(this: UClient) {
+	let uuid = this.device?.device_fp
+	if (uuid) return uuid
+	return uuid = crypto.randomUUID(), this.device.device_fp = uuid,
+		fs.writeFileSync(`${this.config.data_dir}/device.json`, JSON.stringify(this.device, null, '\t')),
+		uuid
+}
+
+export function getRequestAndMessageParams(this: UClient, e?: any) {
+	const t = getUuid.call(this), n = e ? "x-rpc-" : "";
+	return {
+		[`${n}client_type`]: "4",
+		[`${n}platform`]: "4",
+		[`${n}device_id`]: t,
+		[`${n}device_fp`]: t
 	}
 }

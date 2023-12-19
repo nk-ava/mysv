@@ -1,5 +1,3 @@
-import {Perm} from "./villa";
-
 export interface UserInfo {
 	/** 用户 uid */
 	uid: number

@@ -13,6 +13,7 @@ import {
 import {Bot, RobotRunTimeError} from "./bot";
 import {Villa} from "./villa";
 import * as fs from "fs";
+import {UClient} from "./uClient";
 
 export interface Text {
 	type: 'text'
@@ -143,7 +144,7 @@ export class Msg {
 	private readonly mention: MentionedInfo
 	private readonly panel: Panel
 	private readonly villa_id: number
-	private readonly c: Bot
+	private readonly c: Bot | UClient
 	private post_id!: string
 	private villa_card!: VillaCardMsg
 	private robot_card!: RobotCardMsg
@@ -158,8 +159,8 @@ export class Msg {
 	private preview!: PreviewLinkMsg
 	private badgeMsg!: BadgeMsg
 
-	constructor(c: Bot, villa_id: number)
-	constructor(c: Bot, villa_id: number, o: Elem[])
+	constructor(c: Bot | UClient, villa_id: number)
+	constructor(c: Bot | UClient, villa_id: number, o: Elem[])
 
 	constructor(c: Bot, villa_id: number, o?: Elem[]) {
 		if (o) this.origin = o
@@ -197,7 +198,7 @@ export class Msg {
 		return this
 	}
 
-	async gen() {
+	gen() {
 		const tmg = {
 			content: {
 				text: this.t,
@@ -261,7 +262,10 @@ export class Msg {
 			case "user":
 				if (!m.id) break
 				m.id = String(m.id)
-				if (!m.nickname) m.nickname = (await (await Villa.get(this.c, this.villa_id))?.getMemberInfo(Number(m.id)))?.basic?.nickname || '你猜我at的谁'
+				if (!m.nickname) {
+					if (this.c instanceof Bot) m.nickname = (await (await Villa.get(this.c, this.villa_id))?.getMemberInfo(Number(m.id)))?.basic?.nickname || '你猜我at的谁'
+					else m.nickname = '你猜我at的谁'
+				}
 				this.t += `@${m.nickname} `
 				this.brief += `@${m.nickname} `
 				len = m.nickname.length + 2
@@ -349,7 +353,10 @@ export class Msg {
 
 	private async rlink(m: LinkRoom) {
 		if (!m.vid || !m.rid) return
-		if (!m.name) m.name = (await (await Villa.get(this.c, Number(m.vid)))?.getRoom(Number(m.rid)))?.room_name || '这个房间'
+		if (!m.name) {
+			if (this.c instanceof Bot) m.name = (await (await Villa.get(this.c, Number(m.vid)))?.getRoom(Number(m.rid)))?.room_name || '这个房间'
+			else m.name = "这个房间"
+		}
 		this.t += `#${m.name} `
 		this.brief += `[#${m.name}](${m.vid}-${m.rid})`
 		if (m.style) this.style(m, m.name?.length + 2)
@@ -432,7 +439,7 @@ export class Msg {
 	private async plink(m: PreviewLink) {
 		if (this.preview) return
 		if (!m.icon || !m.source) {
-			const vinfo = await Villa.getInfo(this.c, this.villa_id)
+			const vinfo = this.c instanceof Bot && (await Villa.getInfo(this.c, this.villa_id)) || undefined
 			!m.icon && (m.icon = (vinfo?.villa_avatar_url || 'https://i.gtimg.cn/open/app_icon/09/28/85/17/1109288517_100_ios.png'))
 			!m.source && (m.source = (vinfo?.name || '米游社'))
 		}

@@ -7,6 +7,8 @@ export interface MsgContentInfo {
 	content: MsgContent
 	/** 组件 */
 	panel?: Panel
+	/** 网页端用户登入 */
+	trace?: any
 }
 
 export interface MentionedInfo {
@@ -25,6 +27,14 @@ export interface QuoteInfo {
 	original_message_id: string
 	/** 引用树初始消息发送时间戳，和 quoted_message_send_time 保持一致即可 */
 	original_message_send_time: number
+}
+
+
+export interface Quotable {
+	/** 引用消息的消息id */
+	message_id: string
+	/** 引用消息发送的时间 */
+	send_time: number
 }
 
 export interface PreviewLinkMsg {

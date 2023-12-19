@@ -1,2 +1,3 @@
-export * as Network from "./network"
-export {genDeviceConfig} from "./deivce"
+export * from "./network"
+export * from "./deivce"
+export * from "./events"

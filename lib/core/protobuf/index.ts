@@ -144,8 +144,8 @@ export function decode(encoded: Buffer): Proto {
 
 export function deepDecode(encoded: Buffer, type?: any) {
 	let proto: any
+	if (type === "string") return encoded.toString()
 	try {
-		if (type === "string") return encoded.toString()
 		proto = decode(encoded)
 	} catch {
 		return encoded.toString()
@@ -156,6 +156,8 @@ export function deepDecode(encoded: Buffer, type?: any) {
 	for (let k of keys) {
 		if (proto[Number(k)] instanceof Proto)
 			proto[Number(k)] = deepDecode(proto[Number(k)]["encoded"], type?.[Number(k)])
+		if (Array.isArray(proto[Number(k)]))
+			proto[Number(k)] = (proto[Number(k)] as Proto[]).map(a => deepDecode(a["encoded"], type?.[Number(k)]))
 	}
 	return proto
 }

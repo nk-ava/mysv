@@ -1,11 +1,12 @@
 import {Bot, RobotRunTimeError} from "../bot";
 import WebSocket from "ws"
-import * as pb from "./protobuf"
+import * as pb from "../core/protobuf"
 import Writer from "./writer";
 import PbJs, {Type} from "protobufjs"
-import {Proto} from "./protobuf";
+import {Proto} from "../core/protobuf";
 import Parser, {Events} from "../parser";
 import {lock} from "../common";
+import * as Path from "path";
 
 export interface WSInfo {
 	/** Websocket 接入地址 */
@@ -28,7 +29,7 @@ const HEARTBEAT = Symbol("HEARTBEAT")
 
 async function loadTypes() {
 	return new Promise((resolve, reject) => {
-		new PbJs.Root().load(__dirname + "/protobuf/proto/model.proto", {keepCase: true}, (error, root) => {
+		new PbJs.Root().load(Path.resolve(__dirname, "../core/protobuf/proto/model.proto"), {keepCase: true}, (error, root) => {
 			if (error) reject(new RobotRunTimeError(-11, '加载model.proto文件出错'))
 			botEventType = root?.lookupType("RobotEvent")
 			resolve(undefined)
