@@ -44,12 +44,13 @@ enum CMD_NUMBER {
 	"ppMsgP" = 0x32,
 	"qryRelationR" = 0x50,
 	"pullUgSes" = 0x50,
-	"ugMsg" = 0x32
+	"ugMsg" = 0x32,
+	"qryMsgChange" = 0x52
 }
 
 type CMD =
 	"qryMsg" | "pullSeAtts" | "pullUS" | "reportsdk" | "pullMsg" | "pullUgMsg"
-	| "ppMsgP" | "qryRelationR" | "pullUgSes" | "ugMsg"
+	| "ppMsgP" | "qryRelationR" | "pullUgSes" | "ugMsg" | "qryMsgChange"
 
 export type LogLevel = 'all' | 'mark' | 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'off'
 
@@ -67,6 +68,7 @@ const INTERVAL = Symbol("INTERVAL")
 const FN_SEND = Symbol("FN_SEND")
 const HANDLER = Symbol("HANDLER")
 const HEARTBEAT = Symbol("HEARTBEAT")
+const INTERVAL_PULL_UG_MSG = Symbol("INTERVAL_PULL_UG_MSG")
 
 export class UClient extends EventEmitter {
 	private keepAlive: boolean
@@ -75,13 +77,15 @@ export class UClient extends EventEmitter {
 	private [HANDLER]: Map<number, Function>
 	private [HEARTBEAT]!: NodeJS.Timeout | number
 	private readonly trace: any
+	private [INTERVAL_PULL_UG_MSG]!: NodeJS.Timeout
 	readonly logger: log4js.Logger
 	readonly uid: number
 	readonly config: UClientConfig
 	readonly device: Device
-	private readonly sig = {
+	readonly sig = {
 		seq: 1,
-		timestamp_pullUgMsg: 0
+		timestamp_pullUgMsg: 0,
+		timestamp_lastSend: Date.now()
 	}
 
 	constructor(config: UClientConfig) {
@@ -165,6 +169,10 @@ export class UClient extends EventEmitter {
 					})
 					return heartbeat.bind(this) as Function
 				}).call(this), 15000)
+				this[INTERVAL_PULL_UG_MSG] = setInterval(() => {
+					if (Date.now() - this.sig.timestamp_lastSend >= 180000)
+						this._fn().then()
+				}, 60000)
 			})
 			this[NET].on("message", (data) => {
 				this.packetListener(data as Buffer)
@@ -204,14 +212,16 @@ export class UClient extends EventEmitter {
 
 	async sendMsg(villa_id: number, room_id: number, elem: Elem | Elem[], quote?: Quotable): Promise<{ msgId: string }> {
 		if (!Array.isArray(elem)) elem = [elem]
-		const {message, obj_name, brief} = await (await (new Msg(this, villa_id)).parse(elem)).gen()
+		const {message, obj_name, brief, panel} = await (await (new Msg(this, villa_id)).parse(elem)).gen()
 		message.trace = this.trace
+		message.panel = panel
 		if (quote) message.quote = {
 			original_message_send_time: quote.send_time,
 			original_message_id: quote.message_id,
 			quoted_message_send_time: quote.send_time,
 			quoted_message_id: quote.message_id
 		} as QuoteInfo
+		this.logger.debug("message:", message, "obj_name:", obj_name)
 		const body = {
 			1: 67,
 			2: obj_name,
@@ -229,6 +239,20 @@ export class UClient extends EventEmitter {
 		}
 	}
 
+	async recallMsg(villa_id: number, room_id: number, msg: Quotable) {
+		const {data} = await axios.post("https://bbs-api.miyoushe.com/vila/wapi/chat/recall/message", {
+			channelId: String(room_id),
+			msg_uid: msg.message_id,
+			room_id: String(room_id),
+			send_time: msg.send_time,
+			targetId: String(villa_id),
+			villa_id: String(villa_id)
+		}, {
+			headers: this.getHeaders()
+		})
+		if (data.retcode !== 0) throw new UClientRunTimeError(-2, `测回消息失败, reason ${data.message || "unknown"}`)
+	}
+
 	private buildPkt(body: Uint8Array | Buffer, cmd: CMD, id: string | number) {
 		const seq = this.sig.seq & 0xffff
 		this.sig.seq++
@@ -242,7 +266,7 @@ export class UClient extends EventEmitter {
 
 	private async [FN_SEND](pkt: Buffer, seq: number): Promise<any> {
 		return new Promise((resolve, reject) => {
-			this[NET].send(pkt, (err) => {
+			this[NET].sent(pkt, (err) => {
 				if (err) reject(new UClientRunTimeError(-1, `数据包发送失败 seq: ${seq}, reason: ${err.message}`))
 				const timer = setTimeout(() => {
 					this[HANDLER].delete(seq)
@@ -279,33 +303,31 @@ export class UClient extends EventEmitter {
 	}
 
 	private async sendInitPkt() {
-		this[NET].send(this.buildPkt(pb.encode({
+		this[NET].sent(this.buildPkt(pb.encode({
 			1: 0
 		}), "pullSeAtts", this.uid).pkt)
-		this[NET].send(this.buildPkt(pb.encode({
+		this[NET].sent(this.buildPkt(pb.encode({
 			1: Date.now()
 		}), "pullUS", this.uid).pkt)
-		this[NET].send(this.buildPkt(pb.encode({
+		this[NET].sent(this.buildPkt(pb.encode({
 			1: Date.now(),
 			2: 0,
 			4: 1,
 			6: Date.now(),
 			7: 1
 		}), "pullMsg", this.uid).pkt)
-		const {pkt, seq} = this.buildPkt(pb.encode({
-			1: 0
-		}), "pullUgMsg", this.uid)
-		this.sig.timestamp_pullUgMsg = (await this[FN_SEND](pkt, seq))?.[2]
-		this[NET].send(this.buildPkt(pb.encode({
+		// 发送pullUgMsg
+		await this._fn()
+		this[NET].sent(this.buildPkt(pb.encode({
 			1: 1,
 			2: 100,
 			3: 0,
 			4: 0
 		}), "qryRelationR", this.uid).pkt)
-		this[NET].send(this.buildPkt(pb.encode({
+		this[NET].sent(this.buildPkt(pb.encode({
 			1: `{"engine":"5.9.0","imlib-next":"5.9.0"}`
 		}), "reportsdk", this.uid).pkt)
-		this[NET].send(this.buildPkt(pb.encode({
+		this[NET].sent(this.buildPkt(pb.encode({
 			1: 0,
 			2: "RC:SRSMsg",
 			3: `{"lastMessageSendTime":${Date.now()}}`,
@@ -314,7 +336,7 @@ export class UClient extends EventEmitter {
 			10: ZO(),
 			13: BUF0
 		}), "ppMsgP", "SIG").pkt)
-		this[NET].send(this.buildPkt(pb.encode({
+		this[NET].sent(this.buildPkt(pb.encode({
 			1: 0,
 			2: 0
 		}), "pullUgSes", this.uid).pkt)
@@ -349,11 +371,7 @@ export class UClient extends EventEmitter {
 			case "s_cmd":
 				switch (body[1]) {
 					case 0x06:
-						const {pkt, seq} = this.buildPkt(pb.encode({
-							1: this.sig.timestamp_pullUgMsg
-						}), "pullUgMsg", this.uid)
-						let payload = await this[FN_SEND](pkt, seq)
-						this.sig.timestamp_pullUgMsg = payload[2]
+						var payload = await this._fn()
 						if (!payload[1]) return
 						payload = payload[1]
 						!Array.isArray(payload) && (payload = [payload])
@@ -374,6 +392,10 @@ export class UClient extends EventEmitter {
 						break
 					case 0x07:
 						// 发送qryMsgChange
+						// var {pkt, seq} = this.buildPkt(pb.encode({
+						// 	1: 0
+						// }), "qryMsgChange", this.uid)
+						// var payload = await this[FN_SEND](pkt, seq)
 						break
 				}
 				break
@@ -393,6 +415,8 @@ export class UClient extends EventEmitter {
 
 	private clear() {
 		clearInterval(this[HEARTBEAT])
+		clearInterval(this[INTERVAL_PULL_UG_MSG])
+		clearInterval(this[INTERVAL])
 		this[HANDLER].clear()
 	}
 
@@ -425,6 +449,32 @@ export class UClient extends EventEmitter {
 		const readable = fs.createReadStream(file)
 		const ext = file.match(/\.\w+$/)?.[0]?.slice(1)
 		return await uploadImageWithCk.call(this, readable, ext)
+	}
+
+	async _fn() {
+		const {pkt, seq} = this.buildPkt(pb.encode({
+			1: this.sig.timestamp_pullUgMsg
+		}), "pullUgMsg", this.uid)
+		const payload: any = await this[FN_SEND](pkt, seq)
+		this.sig.timestamp_pullUgMsg = payload[2]
+		return payload
+	}
+
+	getHeaders() {
+		return {
+			"Accept": "application/json, text/plain, */*",
+			"Accept-Encoding": "gzip, deflate, br",
+			"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+			"Connection": "keep-alive",
+			"Cookie": this.config.mys_ck,
+			'Origin': 'https://dby.miyoushe.com',
+			'Referer': 'https://dby.miyoushe.com/',
+			'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+			'x-rpc-client_type': 4,
+			"x-rpc-device_fp": this.device.device_fp,
+			"x-rpc-device_id": this.device.device_fp,
+			"x-rpc-platform": 4
+		}
 	}
 
 	logout() {

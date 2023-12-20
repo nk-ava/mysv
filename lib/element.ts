@@ -1,14 +1,14 @@
 import {
 	AtAll,
 	AtRobot,
-	AtUser, BadgeMsg, Component,
+	AtUser, BadgeMsg, Component, EmoticonMsg,
 	Entity,
 	FontStyle,
 	ImageMsg,
 	LinkMsg,
 	LinkRoomMsg,
 	MentionedInfo,
-	MsgContentInfo, Panel, PreviewLinkMsg, RobotCardMsg, TextMsg, VillaCardMsg
+	MsgContentInfo, Panel, PostMsg, PreviewLinkMsg, RobotCardMsg, SMsg, TextMsg, VillaCardMsg
 } from "./message";
 import {Bot, RobotRunTimeError} from "./bot";
 import {Villa} from "./villa";
@@ -124,30 +124,24 @@ export interface Badge {
 	url?: string
 }
 
-export type Elem =
-	Text
-	| At
-	| Image
-	| Post
-	| Link
-	| LinkRoom
-	| Button
-	| Template
-	| PreviewLink
-	| Badge
-	| VillaCard
-	| RobotCard
-	| string
+export interface Emoticon {
+	type: "emoticon",
+	id: string | number
+	name?: string
+}
+
+export type Elem = Text | At | Image | Link | LinkRoom | Button | Template | PreviewLink | Badge | SElem | string
+
+/** 只能单独发，不能组合发的元素 */
+export type SElem = Post | VillaCard | RobotCard | Emoticon
 
 export class Msg {
 	private readonly entities: Array<Entity>
 	private readonly mention: MentionedInfo
-	private readonly panel: Panel
 	private readonly villa_id: number
 	private readonly c: Bot | UClient
-	private post_id!: string
-	private villa_card!: VillaCardMsg
-	private robot_card!: RobotCardMsg
+	private panel: Panel
+	private sMsg!: SMsg
 	private img!: ImageMsg
 	private t: string
 	private brief: string
@@ -185,6 +179,7 @@ export class Msg {
 		if (o) this.origin = o
 		for (let m of this.origin || []) {
 			if (typeof m === 'string') m = {type: 'text', text: m}
+			if (this.sMsg) return this
 			try {// @ts-ignore
 				await this[m.type](m)
 			} catch (e) {
@@ -205,24 +200,16 @@ export class Msg {
 				entities: this.entities
 			}
 		} as MsgContentInfo
-		if (this.robot_card) {
-			tmg.content = this.robot_card
-			this.brief = `[分享机器人](${this.robot_card})`
-			this.obj_name = 'MHY:RobotCard'
-		} else if (this.villa_card) {
-			tmg.content = this.villa_card
-			this.brief = `[分享别野](${this.villa_card})`
-			this.obj_name = 'MHY:VillaCard'
-		} else if (this.post_id) {
-			tmg.content = {post_id: this.post_id}
-			this.brief = `[分享帖子](${this.post_id})`
-			this.obj_name = "MHY:Post"
+		if (this.sMsg) {
+			tmg.content = this.sMsg
+			this.panel = {}
 		} else {
 			if (this.img) {
 				this.brief += '[图片]';
 				if (this.t.length) (tmg.content as TextMsg).images = [this.img]
 				else {
 					tmg.content = this.img
+					this.panel = {}
 					this.obj_name = "MHY:Image"
 				}
 			}
@@ -235,9 +222,9 @@ export class Msg {
 				(tmg.content as TextMsg).badge = this.badgeMsg
 			}
 			if (this.mention.type !== 0 && this.t.length) tmg.mentionedInfo = this.mention
+			if (this.smallComponent.length && this.t.length) this.panel.small_component_group_list?.push(this.smallComponent)
+			if (this.midComponent.length && this.t.length) this.panel.mid_component_group_list?.push(this.midComponent)
 		}
-		if (this.smallComponent.length) this.panel.small_component_group_list?.push(this.smallComponent)
-		if (this.midComponent.length) this.panel.mid_component_group_list?.push(this.midComponent)
 		return {
 			message: tmg, obj_name: this.obj_name, panel: this.panel, brief: this.brief, imgMsg: !!this.img
 		}
@@ -373,10 +360,12 @@ export class Msg {
 	}
 
 	private post(m: Post) {
-		if (this.post_id) return;
 		m.id = String(m.id)
 		if (!m.id || m.id === "") return
-		this.post_id = m.id
+		this.sMsg = {} as PostMsg
+		this.sMsg.post_id = m.id
+		this.brief = `[分享帖子](${m.id})`
+		this.obj_name = "MHY:Post"
 	}
 
 	private button(m: Button) {
@@ -464,17 +453,27 @@ export class Msg {
 	}
 
 	private villa(m: VillaCard) {
-		if (this.villa_card) return
-		this.villa_card = {} as VillaCardMsg
-		m.id && (this.villa_card.villa_id = String(m.id))
-		m.name && (this.villa_card.villa_name = String(m.name))
+		this.sMsg = {} as VillaCardMsg
+		m.id && (this.sMsg.villa_id = String(m.id))
+		m.name && (this.sMsg.villa_name = String(m.name))
+		this.brief = `[分享别野](${m.id})`
+		this.obj_name = 'MHY:VillaCard'
 	}
 
 	private robot(m: RobotCard) {
-		if (this.robot_card) return
-		this.robot_card = {} as RobotCardMsg
-		m.id && (this.robot_card.bot_id = m.id)
-		m.name && (this.robot_card.name = String(m.name))
+		this.sMsg = {} as RobotCardMsg
+		m.id && (this.sMsg.bot_id = m.id)
+		m.name && (this.sMsg.name = String(m.name))
+		this.brief = `[分享机器人](${m.id})`
+		this.obj_name = 'MHY:RobotCard'
+	}
+
+	private emoticon(m: Emoticon) {
+		this.sMsg = {} as EmoticonMsg
+		m.id && (this.sMsg.id = String(m.id))
+		m.name && (this.sMsg.emoticon = m.name)
+		this.brief = `[${m.name || "动画表情"}]`
+		this.obj_name = 'MHY:Emoticon'
 	}
 
 	private style(obj: any, len: number) {
@@ -611,6 +610,24 @@ export const segment = {
 			icon: icon,
 			text: text,
 			url: url
+		}
+	},
+	villa: (id: number | string): VillaCard => {
+		return {
+			type: 'villa',
+			id: id
+		}
+	},
+	robot: (id: string): RobotCard => {
+		return {
+			type: "robot",
+			id: id
+		}
+	},
+	emoticon: (id: number | string): Emoticon => {
+		return {
+			type: "emoticon",
+			id: id
 		}
 	}
 }

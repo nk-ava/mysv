@@ -213,7 +213,7 @@ export default class Parser {
 			send_time: Number(proto[6]),
 			msg_id: proto[9],
 			src: src.osSrc || "unknown",
-			msg: m?.[1] || content.content.text || "",
+			msg: content.content.text || m?.[1] || "",
 			nickname: m?.[0] || content.user.name || "unknown"
 		} as Message
 	}

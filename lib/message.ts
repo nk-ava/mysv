@@ -52,7 +52,10 @@ export interface BadgeMsg {
 	"url": string
 }
 
-type MsgContent = TextMsg | ImageMsg | PostMsg | VillaCardMsg | RobotCardMsg
+type MsgContent = TextMsg | ImageMsg | SMsg
+
+/** 不能组合发的消息 */
+export type SMsg = PostMsg | VillaCardMsg | RobotCardMsg | EmoticonMsg
 
 /** 文本消息 */
 export interface TextMsg {
@@ -104,6 +107,12 @@ export interface AtRobot {
 	type: "mentioned_robot"
 	/** at的机器人id */
 	bot_id: string
+}
+
+/** 发送表情包消息 */
+export interface EmoticonMsg {
+	id: string
+	emoticon?: string
 }
 
 export interface FontStyle {
