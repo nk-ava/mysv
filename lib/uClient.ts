@@ -480,7 +480,15 @@ export class UClient extends EventEmitter {
 						!Array.isArray(payload) && (payload = [payload])
 						for (let pkt of payload) {
 							if (Number(pkt[1]) === this.uid && this.config.ignore_self) continue
-							new Parser(this).doPtParse(pkt)
+							const msg = new Parser(this).doPtParse(pkt)
+							if (!msg) return
+							if (msg.isPrivate) {
+								this.logger.info(`recv from: [Private: ${msg?.nickname || "unknown"}(${msg?.from_uid})] ${msg?.msg}`)
+								this.em("message.private", msg)
+							} else {
+								this.logger.info(`recv from: [Villa: ${msg?.source?.villa_name || "unknown"}(${msg?.source?.villa_id}), Member: ${msg?.nickname}(${msg?.from_uid})] ${msg?.msg}`)
+								this.em('message.villa', msg)
+							}
 						}
 						break
 					case 0x07:
@@ -493,7 +501,7 @@ export class UClient extends EventEmitter {
 				}
 				break
 			case "s_msg":
-				console.log(body)
+				// console.log(body)
 				body = pb.deepDecode(body, {
 					1: "string", 3: "string", 4: "string", 5: "string", 9: "string",
 					13: "string", 15: "string", 16: "string", 18: {
@@ -504,7 +512,7 @@ export class UClient extends EventEmitter {
 				this[NET].send(Buffer.concat([Buffer.from([0x40]), seq]))
 				break
 			case "s_ntf":
-				console.log(body)
+				// console.log(body)
 
 				break
 		}

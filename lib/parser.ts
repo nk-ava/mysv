@@ -175,9 +175,9 @@ export default class Parser {
 		return rs
 	}
 
-	doPtParse(proto: any) {
+	doPtParse(proto: any): Message | undefined {
 		const obj_name = proto[4]
-		if (!obj_name.includes("MHY")) return
+		if (!obj_name.startsWith("MHY")) return
 		if (/^MHY:((SYS)|(SIG)):.*$/.test(obj_name)) return
 		const content = JSON.parse(proto[5])
 		let src = proto[13]
@@ -208,8 +208,6 @@ export default class Parser {
 				} as Quotable : undefined
 				return await (this.c as UClient).sendPrivateMsg(msg.from_uid, content, q)
 			}
-			this.c.logger.info(`recv from: [Private: ${msg?.nickname || "unknown"}(${msg?.from_uid})] ${msg?.msg}`)
-			this.c.em("message.private", msg)
 		} else {
 			msg.isPrivate = false
 			msg.source = {
@@ -225,9 +223,8 @@ export default class Parser {
 				} as Quotable : undefined
 				return await (this.c as UClient).sendMsg(msg?.source?.villa_id, msg.source.room_id, content, q)
 			}
-			this.c.logger.info(`recv from: [Villa: ${msg?.source?.villa_name || "unknown"}(${msg?.source?.villa_id}), Member: ${msg?.nickname}(${msg?.from_uid})] ${msg?.msg}`)
-			this.c.em('message.villa', msg)
 		}
+		return msg
 	}
 
 	doForwardParse(m: any) {
