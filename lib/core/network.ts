@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import axios from "axios";
 import {UClient, UClientRunTimeError} from "../uClient";
 import {lock} from "../common";
+import * as fs from "fs";
 
 export class Network extends WebSocket {
 	readonly remote: string
@@ -19,8 +20,12 @@ export class Network extends WebSocket {
 		const {data} = await axios.get("https://bbs-api.miyoushe.com/vila/wapi/own/member/info", {
 			headers: c.getHeaders()
 		})
+		if (data.retcode !== 0) throw new UClientRunTimeError(data.recode, `请求info失败，reason：${data.message || "unknown"}`)
 		const info = data?.data
-		if (info.user_id != uid) throw new UClientRunTimeError(-1, "米游社cookie对应的uid和配置的uid账号不一致")
+		if (info.user_id != uid) {
+			fs.unlink(`${c.config.data_dir}/cookie`, () => {})
+			throw new UClientRunTimeError(-1, "米游社cookie对应的uid和配置的uid账号不一致")
+		}
 		if (!info) throw new UClientRunTimeError(-1, `uclient获取连接信息出错，reason ${data.message || 'unknown'}`)
 		c.logger.debug("请求info接口成功...")
 		await Network.submitConfig(config)

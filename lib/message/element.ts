@@ -1,19 +1,19 @@
 import {
 	AtAll,
 	AtRobot,
-	AtUser, BadgeMsg, Component, EmoticonMsg,
+	AtUser, BadgeMsg, Component, CVEmoticonMsg, EmoticonMsg,
 	Entity,
-	FontStyle,
+	FontStyle, ForwardMsg, HoYomoji,
 	ImageMsg,
 	LinkMsg,
 	LinkRoomMsg,
 	MentionedInfo,
-	MsgContentInfo, Panel, PostMsg, PreviewLinkMsg, RobotCardMsg, SMsg, TextMsg, VillaCardMsg
+	MsgContentInfo, Panel, PostMsg, PreviewLinkMsg, RobotCardMsg, SMsg, TextMsg, UserMsg, VillaCardMsg
 } from "./message";
-import {Bot, RobotRunTimeError} from "./bot";
-import {Villa} from "./villa";
+import {Bot} from "../bot";
+import {Villa} from "../villa";
 import * as fs from "fs";
-import {UClient} from "./uClient";
+import {UClient} from "../uClient";
 
 export interface Text {
 	type: 'text'
@@ -73,6 +73,11 @@ export interface Image {
 	width?: number
 	height?: number
 	size?: number
+	/** 别野专属表情名称 */
+	name?: string
+	/** 表情id */
+	id?: string | number
+	asface?: boolean
 }
 
 export interface Post {
@@ -124,16 +129,48 @@ export interface Badge {
 	url?: string
 }
 
-export interface Emoticon {
-	type: "emoticon",
+export interface User {
+	type: 'user'
 	id: string | number
-	name?: string
+	nickname?: string
 }
 
-export type Elem = Text | At | Image | Link | LinkRoom | Button | Template | PreviewLink | Badge | SElem | string
+export interface Emoticon {
+	type: "face",
+	id?: string | number
+	name: string
+}
+
+export interface HoYo {
+	type: "hoyo"
+	width?: number
+	height?: number
+	id?: string | number
+	to_uid?: string | number
+	content: Elem | Elem[]
+	size?: number
+	url: string
+	show?: boolean
+}
+
+export interface Forward {
+	type: 'forward'
+	id: number | string
+	room_id?: number | string
+	villa_id?: number | string
+	villa_name?: string
+	room_name?: string
+	summary: {
+		uid?: string | number
+		nickname: string
+		content: string
+	}[]
+}
+
+export type Elem = User | Text | At | Image | Link | LinkRoom | Button | Template | PreviewLink | Badge | SElem | string
 
 /** 只能单独发，不能组合发的元素 */
-export type SElem = Post | VillaCard | RobotCard | Emoticon
+export type SElem = Post | VillaCard | RobotCard | Emoticon | HoYo | Forward
 
 export class Msg {
 	private readonly entities: Array<Entity>
@@ -318,6 +355,20 @@ export class Msg {
 		} as ImageMsg
 		if (m.width && m.height) this.img.size = {width: Number(m.width), height: Number(m.height)}
 		if (typeof m.size !== 'undefined') this.img.file_size = Number(m.size)
+		if (m.asface) {
+			this.sMsg = {
+				...this.img,
+				id: String(m.id)
+			} as CVEmoticonMsg
+			if (m.name) {
+				(this.sMsg as CVEmoticonMsg).name = m.name
+				this.brief = `[别野专属表情](${m.name})`
+				this.obj_name = "MHY:VillaEmoticon"
+				return
+			}
+			this.brief = '[自定义表情]'
+			this.obj_name = "MHY:CustomEmoticon"
+		}
 	}
 
 	private link(m: Link) {
@@ -366,6 +417,23 @@ export class Msg {
 		this.sMsg.post_id = m.id
 		this.brief = `[分享帖子](${m.id})`
 		this.obj_name = "MHY:Post"
+	}
+
+	private async user(m: User) {
+		m.id = String(m.id)
+		if (!m.id) return
+		!m.nickname && (m.nickname = this.c instanceof UClient ? "unknown" : ((await (await Villa.get(this.c, this.villa_id))?.getMemberInfo(Number(m.id)))?.basic?.nickname || "unknown"))
+		this.entities.push({
+			entity: {
+				type: 'user',
+				user_id: m.id
+			} as UserMsg,
+			offset: this.offset,
+			length: m.nickname.length
+		})
+		this.t += `${m.nickname}`
+		this.brief += `${m.nickname}`
+		this.offset += m.nickname.length
 	}
 
 	private button(m: Button) {
@@ -468,12 +536,46 @@ export class Msg {
 		this.obj_name = 'MHY:RobotCard'
 	}
 
-	private emoticon(m: Emoticon) {
+	private face(m: Emoticon) {
 		this.sMsg = {} as EmoticonMsg
 		m.id && (this.sMsg.id = String(m.id))
 		m.name && (this.sMsg.emoticon = m.name)
 		this.brief = `[${m.name || "动画表情"}]`
 		this.obj_name = 'MHY:Emoticon'
+	}
+
+	private async hoyo(m: HoYo) {
+		m.to_uid = String(m.to_uid || "")
+		!m.content && (m.content = "")
+		if (!Array.isArray(m.content)) m.content = [m.content]
+		const msg = await new Msg(this.c, this.villa_id).parse(m.content)
+		this.sMsg = {
+			action_id: String(m.id || ""),
+			target_user_id: m.to_uid,
+			entities: msg.entities,
+			text: msg.t,
+			file_size: m.size || 0,
+			url: m.url
+		} as HoYomoji
+		if (m.width && m.height) this.sMsg.size = {
+			width: m.width,
+			height: m.height
+		}
+		this.brief = `[HoYo表情](${msg.t})`
+		this.obj_name = m.show ? "MHY:HoYomoji" : (msg.t === "掷骰子" ? "MHY:RandomEmoticon" : "MHY:AvatarEmoticon")
+	}
+
+	private async forward(m: Forward) {
+		this.sMsg = {
+			summary_list: m.summary || [],
+			room_name: m.room_name || "",
+			villa_name: m.villa_name || ""
+		} as ForwardMsg
+		m.room_id && ((this.sMsg as ForwardMsg).room_id = String(m.room_id))
+		m.villa_id && ((this.sMsg as ForwardMsg).villa_id = String(m.villa_id))
+		m.id && (this.sMsg.id = String(m.id))
+		this.brief = "[转发消息]"
+		this.obj_name = "MHY:ForwardMsg"
 	}
 
 	private style(obj: any, len: number) {
@@ -522,7 +624,7 @@ export class Msg {
 
 export const segment = {
 	at: (id: number | string, style?: string): At => {
-		if (typeof id === 'number') {
+		if (typeof id === 'number' || Number(id)) {
 			return {
 				type: 'at',
 				id: id,
@@ -535,7 +637,7 @@ export const segment = {
 			scope: 'all',
 			style: style
 		}
-		if (!id?.startsWith("bot_")) throw new RobotRunTimeError(-13, `不是正确的bot_id`)
+		if (!id?.startsWith("bot_")) throw new Error(`不是正确的bot_id`)
 		return {
 			type: 'at',
 			id: id,
@@ -554,7 +656,8 @@ export const segment = {
 		return {
 			type: 'image',
 			file: file,
-			headers: headers
+			headers: headers,
+			asface: false
 		}
 	},
 	post: (id: string | number): Post => {
@@ -624,10 +727,10 @@ export const segment = {
 			id: id
 		}
 	},
-	emoticon: (id: number | string): Emoticon => {
+	face: (name: string): Emoticon => {
 		return {
-			type: "emoticon",
-			id: id
+			type: "face",
+			name: name
 		}
 	}
 }

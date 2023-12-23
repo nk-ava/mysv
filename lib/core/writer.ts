@@ -1,10 +1,10 @@
 import {PassThrough} from "stream"
 
-export default interface Writer {
+export interface Writer {
 	read(size?: number): Buffer
 }
 
-export default class Writer extends PassThrough {
+export class Writer extends PassThrough {
 	writeU8(v: number) {
 		const buf = Buffer.allocUnsafe(1)
 		buf.writeUInt8(v)

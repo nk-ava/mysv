@@ -98,7 +98,7 @@ process.on("unhandledRejection", error => {
 })
 
 process.on("uncaughtException", error => {
-    app.logger.error(error)
+    app.logger.error(error.message)
 })
 ```
 

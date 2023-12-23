@@ -52,10 +52,23 @@ export interface BadgeMsg {
 	"url": string
 }
 
+export interface HoYomoji {
+	size?: {
+		width: number
+		height: number
+	}
+	action_id: string
+	entities: Array<Entity>
+	target_user_id: string
+	text: string
+	file_size: number
+	url: string
+}
+
 type MsgContent = TextMsg | ImageMsg | SMsg
 
 /** 不能组合发的消息 */
-export type SMsg = PostMsg | VillaCardMsg | RobotCardMsg | EmoticonMsg
+export type SMsg = PostMsg | VillaCardMsg | RobotCardMsg | EmoticonMsg | HoYomoji | CVEmoticonMsg | ForwardMsg
 
 /** 文本消息 */
 export interface TextMsg {
@@ -88,6 +101,11 @@ export interface ImageMsg {
 	file_size?: number
 }
 
+export interface CVEmoticonMsg extends ImageMsg {
+	name?: string
+	id: string
+}
+
 /** 分享米游社帖子 */
 export interface PostMsg {
 	/** 米游社帖子链接 https://www.miyoushe.com/ys/article/39872279 最后一个/后的字符串 39872279即帖子 id */
@@ -96,11 +114,29 @@ export interface PostMsg {
 
 export interface Entity {
 	/** 具体的实体信息 */
-	entity: AtRobot | AtUser | AtAll | LinkRoomMsg | LinkMsg | FontStyle
+	entity: AtRobot | AtUser | AtAll | LinkRoomMsg | LinkMsg | FontStyle | UserMsg
 	/** 表示UTF-16编码下对应实体在 text 中的起始位置 */
 	offset?: number
 	/** 表示UTF-16编码下对应实体的长度 */
 	length: number
+}
+
+export interface UserMsg {
+	type: 'user'
+	user_id: string
+}
+
+export interface ForwardMsg {
+	room_id?: string
+	room_name: string
+	villa_id?: string
+	villa_name: string
+	id?: string
+	summary_list: {
+		uid?: string
+		nickname: string
+		content: string
+	}[]
 }
 
 export interface AtRobot {

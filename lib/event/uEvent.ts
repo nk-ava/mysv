@@ -1,6 +1,5 @@
-import {Elem} from "../element";
-import {Quotable} from "../message";
-import {User} from "../event";
+import {Elem, Quotable} from "../message";
+import {UserInfo} from "./cbEvents";
 
 export interface Message {
 	/** 消息发送者，可以是机器人或其他用户 */
@@ -15,7 +14,7 @@ export interface Message {
 		room_name: string
 	}
 	/** 用户信息 */
-	user: User,
+	user: UserInfo,
 	/** 消息元素 */
 	message: Elem[]
 	/** 发送时间 */
@@ -32,5 +31,7 @@ export interface Message {
 	/** 引用的消息 */
 	quote?: Quotable
 
-	reply: (content: Elem | Elem[], quote?: boolean) => Promise<{ msgId: string }>
+	isPrivate: boolean
+
+	reply?: (content: Elem | Elem[], quote?: boolean) => Promise<{ msgId: string }>
 }

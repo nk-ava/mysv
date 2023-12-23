@@ -1,1 +1,0 @@
-export {HttpClient} from "./client"

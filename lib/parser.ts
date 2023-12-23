@@ -1,26 +1,14 @@
 import {
 	JoinVilla, SendMessage, CreateBot, DeleteBot,
 	AddQuickEmoticon, AuditCallback, BaseEvent,
-	ClickMsgComponent, MessageRet, User
+	ClickMsgComponent, MessageRet, UserInfo
 } from "./event";
 import {Bot} from "./bot";
 import {Villa, VillaInfo} from "./villa";
 import {
-	At,
-	Badge,
-	Button,
-	CType,
-	Elem,
-	Image,
-	Link,
-	LinkRoom, Post,
-	PreviewLink,
-	RobotCard,
-	Template,
-	Text,
-	VillaCard
-} from "./element";
-import {Entity, Quotable} from "./message";
+	At, Badge, Button, CType, Elem, Image, Link, LinkRoom, Post, PreviewLink, RobotCard, Template, Text,
+	VillaCard, Entity, Quotable, Emoticon, HoYo, User, Forward
+} from "./message";
 import {UClient} from "./uClient";
 import {Message} from "./core";
 
@@ -89,7 +77,7 @@ export default class Parser {
 						user: {
 							...content.user,
 							id: Number(content.user.id) || content.user.id
-						} as User,
+						} as UserInfo,
 						msg: msg,
 						from_uid: v.from_user_id = (v.bot_msg_id ? this.baseEvent.source.bot.id : Number(v.from_user_id)),
 						send_time: Number(v.send_at),
@@ -187,39 +175,82 @@ export default class Parser {
 		return rs
 	}
 
-	doPtParse(proto: any): Message | undefined {
+	doPtParse(proto: any) {
 		const obj_name = proto[4]
+		if (!obj_name.includes("MHY")) return
 		if (/^MHY:((SYS)|(SIG)):.*$/.test(obj_name)) return
 		const content = JSON.parse(proto[5])
 		let src = proto[13]
 		if (src) src = JSON.parse(src)
 		const source = proto[18]?.[1]?.split("|")
 		const m = proto[16]?.split("：")
-		return {
+		const msg = {
 			from_uid: Number(proto[1]) || proto[1],
 			obj_name: obj_name,
 			user: content.user,
-			source: {
-				villa_id: Number(proto[3]),
-				room_id: Number(proto[19]),
-				villa_name: source?.[0]?.trim() || "unknown",
-				room_name: source?.[1]?.trim() || "unknown",
-			},
 			quote: content.quote ? {
 				send_time: content?.quote?.quoted_message_send_time,
 				message_id: content?.quote?.quoted_message_id
 			} : undefined,
-			message: this.parseContent(content.content, content.panel),
+			message: this.parseContent(content.content, content.panel, obj_name),
 			send_time: Number(proto[6]),
 			msg_id: proto[9],
 			src: src.osSrc || "unknown",
 			msg: content.content.text || m?.[1] || "",
 			nickname: m?.[0] || content.user.name || "unknown"
 		} as Message
+		if (source && source[0] === "私信通知") {
+			msg.isPrivate = true
+			msg.reply = async (content: Elem | Elem[], quote?: boolean) => {
+				const q = quote ? {
+					message_id: msg.msg_id,
+					send_time: msg.send_time
+				} as Quotable : undefined
+				return await (this.c as UClient).sendPrivateMsg(msg.from_uid, content, q)
+			}
+			this.c.logger.info(`recv from: [Private: ${msg?.nickname || "unknown"}(${msg?.from_uid})] ${msg?.msg}`)
+			this.c.em("message.private", msg)
+		} else {
+			msg.isPrivate = false
+			msg.source = {
+				villa_id: Number(proto[3]),
+				room_id: Number(proto[19]),
+				villa_name: source?.[0]?.trim() || "unknown",
+				room_name: source?.[1]?.trim() || "unknown",
+			}
+			msg.reply = async (content: Elem | Elem[], quote?: boolean) => {
+				const q = quote ? {
+					message_id: msg.msg_id,
+					send_time: msg.send_time
+				} as Quotable : undefined
+				return await (this.c as UClient).sendMsg(msg?.source?.villa_id, msg.source.room_id, content, q)
+			}
+			this.c.logger.info(`recv from: [Villa: ${msg?.source?.villa_name || "unknown"}(${msg?.source?.villa_id}), Member: ${msg?.nickname}(${msg?.from_uid})] ${msg?.msg}`)
+			this.c.em('message.villa', msg)
+		}
+	}
+
+	doForwardParse(m: any) {
+		return {
+			uid: Number(m.user.id) || m.user.id,
+			nickname: m.user.name,
+			message: this.parseContent(m.content, m.panel, m.object_name)
+		}
 	}
 
 	/** 米游社用户暂时只能对机器人发送MHY:Text类型消息，所以暂时只解析MYH：Text类型消息和组件消息 */
-	private parseContent(content: any, panel?: any): Elem[] {
+	private parseContent(content: any, panel?: any, obj_name?: string): Elem[] {
+		/** 解析MHY:ForwardMsg */
+		if (obj_name === "MHY:ForwardMsg") {
+			return [{
+				type: "forward",
+				room_id: content.room_id,
+				room_name: content.room_name,
+				villa_id: content.villa_id,
+				villa_name: content.villa_name,
+				summary: content.summary_list
+			} as Forward]
+		}
 		/** 解析MHY：RobotCard */
 		if (content.bot_id) {
 			return [{
@@ -236,14 +267,43 @@ export default class Parser {
 				name: content.villa_name
 			} as VillaCard]
 		}
-		/** 解析MHY：Image */
+		/** 解析MHY：Image | MHY: AvatarEmoticon | MHY:HoYomoji | MHY:RandomEmoticon */
 		if (content.url) {
-			return [{
-				type: 'image',
-				file: content.url,
+			const elem = {
 				...content?.size,
 				size: content.file_size
-			} as Image]
+			}
+			/** MHY: AvatarEmoticon | MHY:HoYomoji | MHY:RandomEmoticon */
+			if (content.text || content.target_user_id || content.entities || content.action_id) {
+				elem.type = "hoyo"
+				elem.content = new Parser(this.c).parseContent({text: content.text, entities: content.entities})
+				content.target_user_id && (elem.to_uid = Number(content.target_user_id) || content.target_user_id)
+				content.action_id && (elem.id = Number(content.action_id) || content.action_id)
+				elem.url = content.url
+				elem.show = obj_name === "MHY:HoYomoji"
+				return [elem as HoYo]
+			}
+			/** MHY:CustomEmoticon | MHY:VillaEmoticon */
+			const image = {
+				type: 'image',
+				file: content.url,
+				...elem
+			}
+			if (content.id) {
+				image.asface = true
+				if (obj_name === "MHY:VillaEmoticon" || content.name) {
+					return [{
+						...image,
+						id: Number(content.id) || content.id,
+						name: content.name
+					} as Image]
+				}
+				return [{
+					...image,
+					id: Number(content.id) || content.id
+				} as Image]
+			}
+			return [image]
 		}
 		/** 解析MHY：Post */
 		if (content.post_id) {
@@ -252,15 +312,22 @@ export default class Parser {
 				id: Number(content.post_id)
 			} as Post]
 		}
+		/** 解析MHY: Emoticon */
+		if (content.emoticon) {
+			return [{
+				type: "face",
+				name: content.emoticon,
+				id: Number(content.id)
+			} as Emoticon]
+		}
 		/** 解析MHY：Text */
 		const rs: Elem[] = []
 		const text = content.text
-		const entities = content.entities as Array<Entity>
+		const entities = content.entities as Array<Entity> || []
 		const images = content?.images?.[0]
 		const preview = content?.preview_link
 		const badge = content?.badge
 		let now = 0
-		if (!entities) return []
 		entities?.sort((x, y) => (x?.offset || 0) - (y?.offset || 0))
 		for (let i = 0; i < entities.length; i++) {
 			const entity = {
@@ -326,9 +393,17 @@ export default class Parser {
 						...elem, ...{
 							type: 'link',
 							url: e.url,
-							name: text.substr(entity.offset, entity.length),
+							name: text.substr(entity?.offset || 0, entity.length),
 							ac_tk: e.requires_bot_access_token
 						} as Link
+					}
+				} else if (e.type === "user") {
+					elem = {
+						...elem, ...{
+							type: 'user',
+							id: Number(e.user_id) || e.user_id,
+							nickname: text.substr((entity?.offset || 0), entity.length)
+						} as User
 					}
 				} else if (e.type === 'style') {
 					if (e.font_style === "bold") {
@@ -372,7 +447,6 @@ export default class Parser {
 				size: images?.file_size
 			} as Image)
 		}
-
 		/** 解析Panel */
 		if (panel) {
 			if (panel.template_id) rs.push({
@@ -405,7 +479,6 @@ export default class Parser {
 				}
 			}
 		}
-
 		/** 解析Preview_link */
 		if (preview) {
 			rs.push({
@@ -418,7 +491,6 @@ export default class Parser {
 				image: preview.image_url
 			} as PreviewLink)
 		}
-
 		/** 解析badge */
 		if (badge) {
 			rs.push({

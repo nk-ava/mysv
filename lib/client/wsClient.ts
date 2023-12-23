@@ -1,9 +1,8 @@
 import {Bot, RobotRunTimeError} from "../bot";
 import WebSocket from "ws"
 import * as pb from "../core/protobuf"
-import Writer from "./writer";
+import {Writer} from "../core";
 import PbJs, {Type} from "protobufjs"
-import {Proto} from "../core/protobuf";
 import Parser, {Events} from "../parser";
 import {lock} from "../common";
 import * as Path from "path";
@@ -189,7 +188,7 @@ export class WsClient extends WebSocket {
 		const appId = pkt.readUint32LE(28)
 		if (magic !== 0xBABEFACE || appId !== 104 || dynamicLen + 8 !== pkt.length) return
 		let body: Buffer = pkt.slice(32)
-		let data: Proto
+		let data: pb.Proto
 		try {
 			data = pb.decode(body)
 		} catch {

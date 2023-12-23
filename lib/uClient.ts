@@ -2,15 +2,13 @@ import EventEmitter from "node:events";
 import * as log4js from "log4js"
 import fs from "fs";
 import {BUF0, getMysCk, lock, TMP_PATH, uploadImageWithCk, ZO} from "./common";
-import Writer from "./ws/writer";
-import * as pb from "./core/protobuf/index";
+import * as pb from "./core/protobuf";
 import Parser from "./parser";
-import {Device, genDeviceConfig, getRequestAndMessageParams, Message, Network} from "./core";
-import {Elem, Msg} from "./element";
+import {Device, genShortDevice, getRequestAndMessageParams, Message, Network, Writer} from "./core";
 import crypto from "crypto";
 import axios from "axios";
 import {Readable} from "node:stream";
-import {Quotable, QuoteInfo} from "./message";
+import {Elem, Forward, Msg, Quotable, QuoteInfo} from "./message";
 
 const pkg = require("../package.json")
 
@@ -32,6 +30,10 @@ export interface UClientConfig {
 	log_level?: LogLevel
 	/** 忽略自己的消息 */
 	ignore_self?: boolean
+	/** 登入账号，手机号或者邮箱 */
+	account?: string | number
+	/** 密码 */
+	password?: string
 }
 
 enum CMD_NUMBER {
@@ -100,12 +102,8 @@ export class UClient extends EventEmitter {
 		if (!fs.existsSync("./data")) fs.mkdirSync("./data")
 		if (!this.config.data_dir) this.config.data_dir = `./data/${this.config.uid}`
 		if (!fs.existsSync(this.config.data_dir)) fs.mkdirSync(this.config.data_dir)
-		if (!fs.existsSync(`${this.config.data_dir}/device.json`)) {
-			this.device = genDeviceConfig()
-			fs.writeFileSync(`${this.config.data_dir}/device.json`, JSON.stringify(this.device, null, "\t"))
-		} else {
-			this.device = JSON.parse(fs.readFileSync(`${this.config.data_dir}/device.json`, "utf-8"))
-		}
+		if (!fs.existsSync(`${this.config.data_dir}/device.json`)) this.device = genShortDevice()
+		else this.device = JSON.parse(fs.readFileSync(`${this.config.data_dir}/device.json`, "utf-8"))
 		this.trace = {
 			report: {
 				challenge: "",
@@ -118,10 +116,11 @@ export class UClient extends EventEmitter {
 		this.logger.level = this.config.log_level as LogLevel
 		this.printPkgInfo()
 		if (!this.config.mys_ck) getMysCk.call(this, (ck: string) => {
+			if (!ck) throw new UClientRunTimeError(-3, "cookie获取失败")
 			this.config.mys_ck = ck
 			fs.writeFileSync(`${this.config.data_dir}/cookie`, ck)
 			this.newUClient().then()
-		})
+		}).then()
 		else this.newUClient().then()
 
 		lock(this, "config")
@@ -239,6 +238,69 @@ export class UClient extends EventEmitter {
 		}
 	}
 
+	async sendPrivateMsg(uid: number | string, content: Elem | Elem[], quote?: Quotable): Promise<{ msgId: string }> {
+		if (!Array.isArray(content)) content = [content]
+		const {message, obj_name, brief, panel} = await (await (new Msg(this, 0)).parse(content)).gen()
+		message.trace = this.trace
+		message.panel = panel
+		if (quote) message.quote = {
+			original_message_send_time: quote.send_time,
+			original_message_id: quote.message_id,
+			quoted_message_send_time: quote.send_time,
+			quoted_message_id: quote.message_id
+		} as QuoteInfo
+		this.logger.debug("message:", message, "obj_name:", obj_name)
+		const body = {
+			1: 67,
+			2: obj_name,
+			3: JSON.stringify(message),
+			9: 0,
+			10: ZO(),
+			13: ""
+		}
+		const {pkt, seq} = this.buildPkt(pb.encode(body), "ugMsg", uid)
+		const id = await this[FN_SEND](pkt, seq)
+		const villa: any = {} // 获取别野信息
+		if (id) this.logger.info(`succeed to send: [Private: (${uid})] ${brief}`)
+		return {
+			msgId: id
+		}
+	}
+
+	async getForwardMsg(id: number, villa_id: number) {
+		const {data} = await axios.get(`https://bbs-api.miyoushe.com/vila/api/forwardMsgGetDetails?id=${id}&view_villa_id=${villa_id}`, {
+			headers: this.getHeaders()
+		})
+		if (data.retcode !== 0) throw new UClientRunTimeError(data.retcode, `获取转发消息失败，reason ${data.message || "unknown"}`)
+		const info = data.data.info
+		const elem = []
+		for (let msg of info.msg_content_list || []) {
+			msg = JSON.parse(msg, (k, v) => {
+				let vv
+				try {
+					vv = JSON.parse(v)
+				} catch {
+					return v
+				}
+				return vv
+			})
+			elem.push(new Parser(this).doForwardParse(msg.msg_content))
+		}
+		return elem
+	}
+
+	async makeForwardMsg(content: string[], villa_id: number, room_id: number): Promise<string | number> {
+		const {data} = await axios.post("https://bbs-api.miyoushe.com/vila/api/forwardMsgCreate", {
+			msg_uid_list: content,
+			room_id: String(room_id),
+			villa_id: String(villa_id)
+		}, {
+			headers: this.getHeaders()
+		})
+		if (data.retcode !== 0) throw new UClientRunTimeError(data.retcode, `制作转发消息失败，reason：${data.message || "unknown"}`)
+		return Number(data.data.id) || data.data.id
+	}
+
 	async recallMsg(villa_id: number, room_id: number, msg: Quotable) {
 		const {data} = await axios.post("https://bbs-api.miyoushe.com/vila/wapi/chat/recall/message", {
 			channelId: String(room_id),
@@ -250,7 +312,40 @@ export class UClient extends EventEmitter {
 		}, {
 			headers: this.getHeaders()
 		})
-		if (data.retcode !== 0) throw new UClientRunTimeError(-2, `测回消息失败, reason ${data.message || "unknown"}`)
+		if (data.retcode !== 0) throw new UClientRunTimeError(data.retcode, `撤回消息失败, reason ${data.message || "unknown"}`)
+	}
+
+	async sendForwardMsg(villa_id: number, room_id: number, msg: Message[]) {
+		const msg_uid: string[] = []
+		const summary: {
+			uid: string | number
+			nickname: string
+			content: string
+		}[] = []
+		let rid!: number | string, vid!: number | string, vname: string = "", rname: string = ""
+		msg.forEach(m => {
+			!rid && (rid = m?.source?.room_id)
+			!rname && (rname = m?.source?.room_name)
+			!vid && (vid = m?.source?.villa_id)
+			!vname && (vname = m?.source?.villa_name)
+			msg_uid.push(m.msg_id)
+			summary.push({
+				uid: m.from_uid,
+				nickname: m.nickname,
+				content: m.msg
+			})
+		})
+		const id = await this.makeForwardMsg(msg_uid, villa_id, room_id)
+		const forward = {
+			type: 'forward',
+			id: id,
+			room_name: rname,
+			villa_name: vname,
+			summary: summary
+		} as Forward
+		rid && (forward.room_id = rid)
+		vid && (forward.villa_id = vid)
+		return await this.sendMsg(villa_id, room_id, forward)
 	}
 
 	private buildPkt(body: Uint8Array | Buffer, cmd: CMD, id: string | number) {
@@ -282,22 +377,28 @@ export class UClient extends EventEmitter {
 	}
 
 	private async packetListener(buf: Buffer) {
-		const type = buf.readUint8()
-		if (type === 0xd0) return
+		const t = buf.readUint8()
+		const type = t >> 4 & 15
 		switch (type) {
-			case 0x21:
+			case 0x2: //CONN_ACK
 				const seq = buf.readUint16BE(1)
 				this.sig.seq = seq + 1
 				await this.sendInitPkt()
 				break
-			case 0x61:
-				this.listener0x61(buf.slice(1))
+			case 0x6: //QUERY_ACK
+				this.listener0x6(buf.slice(1))
 				break
-			case 0x31:
-				await this.listener0x31(buf.slice(1))
+			case 0x3: //PUBLISH
+				await this.listener0x3(buf.slice(1))
 				break
-			case 0x41:
-				this.listener0x41(buf.slice(1))
+			case 0x4: //PUB_ACK
+				this.listener0x4(buf.slice(1))
+				break
+			case 0x9: //SUB_ACK
+			case 0xb: //UNSUB_ACK
+			case 0xd: //PING_RESP
+				break
+			case 0xe: //DISCONNECT
 				break
 		}
 	}
@@ -343,7 +444,7 @@ export class UClient extends EventEmitter {
 		this.emit("online")
 	}
 
-	private listener0x61(buf: Buffer) {
+	private listener0x6(buf: Buffer) {
 		const seq = buf.readUint16BE()
 		const time = buf.readUint32BE(2)
 		const status = buf.readUint16BE(6)
@@ -360,15 +461,17 @@ export class UClient extends EventEmitter {
 		this[HANDLER].get(seq)?.(body)
 	}
 
-	private async listener0x31(buf: Buffer) {
+	private async listener0x3(buf: Buffer) {
 		const time = buf.readUint32BE()
 		const cmdL = buf.readUint16BE(4)
 		const cmd = buf.slice(6, 6 + cmdL).toString()
 		const uL = buf.readUint16BE(6 + cmdL)
 		const from_uid = buf.slice(8 + cmdL, 8 + cmdL + uL).toString()
-		const body = pb.decode(buf.slice(10 + cmdL + uL))
+		const seq = buf.slice(8 + cmdL + uL, 10 + cmdL + uL)
+		let body: any = buf.slice(10 + cmdL + uL)
 		switch (cmd) {
 			case "s_cmd":
+				body = pb.decode(body)
 				switch (body[1]) {
 					case 0x06:
 						var payload = await this._fn()
@@ -377,17 +480,7 @@ export class UClient extends EventEmitter {
 						!Array.isArray(payload) && (payload = [payload])
 						for (let pkt of payload) {
 							if (Number(pkt[1]) === this.uid && this.config.ignore_self) continue
-							const msg = new Parser(this).doPtParse(pkt)
-							if (!msg) continue
-							msg.reply = async (content: Elem | Elem[], quote?: boolean) => {
-								const q = quote ? {
-									message_id: msg.msg_id,
-									send_time: msg.send_time
-								} as Quotable : undefined
-								return await this.sendMsg(msg.source.villa_id, msg.source.room_id, content, q)
-							}
-							this.logger.info(`recv from: [Villa: ${msg?.source?.villa_name || "unknown"}(${msg?.source?.villa_id}), Member: ${msg?.nickname}(${msg?.from_uid})] ${msg?.msg}`)
-							this.emit("message", msg)
+							new Parser(this).doPtParse(pkt)
 						}
 						break
 					case 0x07:
@@ -399,10 +492,25 @@ export class UClient extends EventEmitter {
 						break
 				}
 				break
+			case "s_msg":
+				console.log(body)
+				body = pb.deepDecode(body, {
+					1: "string", 3: "string", 4: "string", 5: "string", 9: "string",
+					13: "string", 15: "string", 16: "string", 18: {
+						1: "string"
+					}, 19: "string"
+				})
+				new Parser(this).doPtParse(body)
+				this[NET].send(Buffer.concat([Buffer.from([0x40]), seq]))
+				break
+			case "s_ntf":
+				console.log(body)
+
+				break
 		}
 	}
 
-	private listener0x41(buf: Buffer) {
+	private listener0x4(buf: Buffer) {
 		const seq = buf.readUint16BE()
 		const date = buf.readUint32BE(2)
 		const status = buf.readUint16BE(6)
@@ -464,22 +572,25 @@ export class UClient extends EventEmitter {
 		return {
 			"Accept": "application/json, text/plain, */*",
 			"Accept-Encoding": "gzip, deflate, br",
-			"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-			"Connection": "keep-alive",
 			"Cookie": this.config.mys_ck,
-			'Origin': 'https://dby.miyoushe.com',
-			'Referer': 'https://dby.miyoushe.com/',
-			'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-			'x-rpc-client_type': 4,
-			"x-rpc-device_fp": this.device.device_fp,
-			"x-rpc-device_id": this.device.device_fp,
-			"x-rpc-platform": 4
+			'Referer': 'https://app.mihoyo.com',
+			'x-rpc-client_type': 2,
+			"x-rpc-device_fp": this.device.bbs?.device_fp || "0000000000",
+			"x-rpc-device_id": this.device.bbs?.device_id || this.device.device_fp,
 		}
 	}
 
 	logout() {
 		this.keepAlive = false
 		this[NET].close()
+	}
+
+	em(name: string, data?: any) {
+		while (name) {
+			this.emit(name, data)
+			let index = name.lastIndexOf(".")
+			name = name.substring(0, index)
+		}
 	}
 }
 

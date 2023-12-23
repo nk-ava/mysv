@@ -15,15 +15,13 @@ import {
 	MessageRet
 } from "./event";
 import {C} from "./user";
-import {MsgContentInfo, Panel, QuoteInfo, Quotable} from "./message";
+import {MsgContentInfo, Panel, QuoteInfo, Quotable, Elem, Msg} from "./message";
 import stream from "stream";
 import FormData from "form-data";
 import fs from "fs";
-import {Elem, Msg} from "./element";
 import {Perm, Villa, VillaInfo} from "./villa";
 import {Readable} from "node:stream";
-import {WsClient} from "./ws";
-import {HttpClient} from "./http";
+import {WsClient, HttpClient} from "./client";
 
 const pkg = require("../package.json")
 
@@ -75,35 +73,31 @@ export interface Config {
 	secret: string
 	/** 公钥，对secret进行加密 */
 	pub_key: string
-
 	/** logger配置，默认info */
 	log_level?: LogLevel
-
 	/** 启动的端口号，默认8081 */
 	port?: number
 	/** 启动的主机地址，默认为本机ip */
 	host?: string
-
 	/** 是否通过WS建连,若ws为true，则优先使用ws，不用再配置回调地址路径 */
 	ws?: boolean
-
 	/** 测试别野id，如果机器人未上线，则需要填入测试别野id，否则无法使用ws */
 	villa_id?: number
-
 	/**
 	 * 米游社上传图片需要ck，因为不是调用的官方开发api，后续补上官方开发api
 	 * 优先使用官方接口进行图片上传，此上传接口仅在官方接口不可用时自动调用
 	 */
 	mys_ck?: string
-
 	/** 配置的回调地址路径，不用写域名 */
 	callback_path?: string
-
 	/** 是否开启签名验证，默认开启，若验证影响性能可关闭 */
 	is_verify?: boolean
-
 	/** 存放机器人数据路径 */
 	data_dir?: string
+	/** 登入账号，手机号或者邮箱 */
+	account?: string
+	/** 密码 */
+	password?: string
 }
 
 const INTERVAL = Symbol("INTERVAL")
@@ -151,11 +145,12 @@ export class Bot extends EventEmitter {
 		this.keepAlive = true
 		this.printPkgInfo()
 		if (this.config.mys_ck === "") getMysCk.call(this, (ck: string) => {
+			if (!ck) throw new RobotRunTimeError(-1, "cookie获取失败")
 			this.config.mys_ck = ck
 			fs.writeFile(`${this.config.data_dir}/cookie`, ck, () => {})
-			this.run().then(() => this.emit("online"))
-		})
-		else this.run().then(() => this.emit("online"))
+			this.run().then(() => this.em("online"))
+		}).then()
+		else this.run().then(() => this.em("online"))
 
 		lock(this, "enSecret")
 		lock(this, "config")
@@ -555,6 +550,14 @@ export class Bot extends EventEmitter {
 		})).data
 		if (!result.data) throw new RobotRunTimeError(-9, result.message)
 		return result.data.url
+	}
+
+	em(name: string, data?: any) {
+		while (name) {
+			this.emit(name, data)
+			let index = name.lastIndexOf(".")
+			name = name.substring(0,index)
+		}
 	}
 }
 
