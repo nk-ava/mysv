@@ -134,6 +134,7 @@ process.on("uncaughtException", error => {
 |AuditCallback|审核回调|
 |AddQuickEmoticon|用户快捷表情回复|
 |ClickMsgComponent|点击组件事件|
+|login.geetest|获取cookie遇到gt验证|
 
 > UClient回调事件
 

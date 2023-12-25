@@ -3,6 +3,7 @@
 #### 2023.12.25
 
 * feat: 跟进[开发文档](https://webstatic.mihoyo.com/vila/bot/doc/changelog/) ，http和ws的quote_msg增加images字段。
+* feat: 修改消息
 
 # v1.0.15
 

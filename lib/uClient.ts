@@ -47,12 +47,13 @@ enum CMD_NUMBER {
 	"qryRelationR" = 0x50,
 	"pullUgSes" = 0x50,
 	"ugMsg" = 0x32,
-	"qryMsgChange" = 0x52
+	"qryMsgChange" = 0x52,
+	"modifyMsg" = 0x52
 }
 
 type CMD =
 	"qryMsg" | "pullSeAtts" | "pullUS" | "reportsdk" | "pullMsg" | "pullUgMsg"
-	| "ppMsgP" | "qryRelationR" | "pullUgSes" | "ugMsg" | "qryMsgChange"
+	| "ppMsgP" | "qryRelationR" | "pullUgSes" | "ugMsg" | "qryMsgChange" | "modifyMsg"
 
 export type LogLevel = 'all' | 'mark' | 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'off'
 
@@ -195,25 +196,25 @@ export class UClient extends EventEmitter {
 		}
 	}
 
-	async getMsg(msgId: string, time: number, villa_id: number, room_id: number) {
+	async getMsg(villa_id: number, room_id: number, quote: Quotable) {
 		const body = {
 			1: String(villa_id),
 			2: 10,
 			3: {
-				1: time,
-				2: msgId,
+				1: quote.send_time,
+				2: quote.message_id,
 				3: String(room_id)
 			}
 		}
 		const {pkt, seq} = this.buildPkt(pb.encode(body), "qryMsg", this.uid)
 		let payload = (await this[FN_SEND](pkt, seq))?.[1]
 		if (!payload) return
-		return new Parser(this).doPtParse(payload)
+		return new Parser(this).doPtParse(payload, true)
 	}
 
 	async sendMsg(villa_id: number, room_id: number, elem: Elem | Elem[], quote?: Quotable): Promise<{ msgId: string }> {
 		if (!Array.isArray(elem)) elem = [elem]
-		const {message, obj_name, brief, panel} = await (await (new Msg(this, villa_id)).parse(elem)).gen()
+		const {message, obj_name, brief, panel} = (await (new Msg(this, villa_id)).parse(elem)).gen()
 		message.trace = this.trace
 		message.panel = panel
 		if (quote) message.quote = {
@@ -267,6 +268,44 @@ export class UClient extends EventEmitter {
 		return {
 			msgId: id
 		}
+	}
+
+	/**
+	 * required string fromUserId = 1;//（谁发的）
+	 * required string targetId = 2;// 目标Id(超级群Id)
+	 * required ChannelType type = 3;//发送类型如：（P2P,GROUP,ULTRAGROUP）
+	 * required string msgUID = 4; // 扩展消息的内容体
+	 * required int64 msgTime = 5; //原始消息时间
+	 * optional string busChannel = 6; // 该消息所属会话的业务标识，限制20字符以内
+	 * optional string content = 7; // 即extraContent消息扩展内容,下表格说明
+	 *
+	 * enum ChannelType {
+	 * 		PERSON = 1;
+	 * 		PERSONS = 2;
+	 * 		GROUP = 3;
+	 * 		TEMPGROUP = 4;
+	 * 		CUSTOMERSERVICE = 5;
+	 * 		NOTIFY = 6;
+	 * 		MC=7;
+	 * 		MP=8;
+	 * 		ULTRAGROUP = 10;
+	 * }
+	 */
+	async modifyMsg(villa_id: number, room_id: number, content: Elem | Elem[], quote: Quotable) {
+		if (!Array.isArray(content)) content = [content]
+		const {message} = (await new Msg(this, villa_id).parse(content)).gen()
+		const body = {
+			1: String(this.uid),
+			2: String(villa_id),
+			3: 10,
+			4: quote.message_id,
+			5: quote.send_time,
+			6: String(room_id),
+			7: JSON.stringify(message)
+		}
+		const {seq, pkt} = this.buildPkt(pb.encode(body), "modifyMsg", villa_id)
+		const payload = await this[FN_SEND](pkt, seq)
+		return payload[1] === 0
 	}
 
 	async getForwardMsg(id: number, villa_id: number) {

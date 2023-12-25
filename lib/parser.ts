@@ -175,12 +175,12 @@ export default class Parser {
 		return rs
 	}
 
-	doPtParse(proto: any): Message | undefined {
+	doPtParse(proto: any, retain = false): Message | undefined {
 		const obj_name = proto[4]
 		if (!obj_name.startsWith("MHY")) return
 		if (/^MHY:((SYS)|(SIG)):.*$/.test(obj_name)) return
 		const content = JSON.parse(proto[5])
-		if (Number(content?.user?.id) === (this.c as UClient).uid && (this.c as UClient).config.ignore_self) return
+		if (!retain && Number(content?.user?.id) === (this.c as UClient).uid && (this.c as UClient).config.ignore_self) return
 		let src = proto[13]
 		if (src) src = JSON.parse(src)
 		const source = proto[18]?.[1]?.split("|")
