@@ -443,7 +443,7 @@ export class Bot extends EventEmitter {
 			}
 		})
 		const r = data.data
-		if (!r) throw new RobotRunTimeError(-8, `消息发送失败：${data.message}`)
+		if (!r) throw new RobotRunTimeError(data.retcode, `消息发送失败：${data.message}`)
 		const villa = await Villa.getInfo(this, villa_id)
 		this.logger.info(`succeed to send: [Villa: ${villa?.name || "unknown"}](${villa_id})] ${brief}`)
 		this.statistics.send_msg_cnt++
@@ -471,7 +471,7 @@ export class Bot extends EventEmitter {
 			})
 		this.logger.debug(`axios请求参数：{host: ${this.mhyHost}${path}${query}, method: ${method}, body: ${JSON.stringify(body)}}`)
 		const r = data.data
-		if (!r) throw new RobotRunTimeError(-7, `${path}返回错误：${data.message}`)
+		if (!r) throw new RobotRunTimeError(data.retcode, `${path}返回错误：${data.message}`)
 		this.statistics.call_api_cnt++
 		return r
 	}
@@ -548,15 +548,15 @@ export class Bot extends EventEmitter {
 				...form.getHeaders()
 			}
 		})).data
-		if (!result.data) throw new RobotRunTimeError(-9, result.message)
+		if (!result.data) throw new RobotRunTimeError(result.retcode, ` 上传图片失败，reason：${result.message}`)
 		return result.data.url
 	}
 
-	em(name: string, data?: any) {
+	em(name: string, ...data: any) {
 		while (name) {
-			this.emit(name, data)
+			this.emit(name, ...data)
 			let index = name.lastIndexOf(".")
-			name = name.substring(0,index)
+			name = name.substring(0, index)
 		}
 	}
 }

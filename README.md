@@ -50,6 +50,25 @@ client.on("message", e => {
 })
 
 /**
+ * 手动过验证样例，此样例只是展示过程
+ * @param data 请求gt验证的参数，可能会出现use_v4
+ * @Param cb 回调函数，将验证成功数据返回
+ */
+client.on("login.geetest", (data, cb) => {
+    // 请求参数
+    let query = `challenge=${p.challenge}&gt=${p.gt}&new_captcha=${p.new_captcha}&success=${p.success}`
+    // 获取结果的key
+    let key = crypto.createHash("md5").update(`challenge=${p.challenge}&gt=${p.gt}`).digest("hex")
+    let timer = setInterval(async () => {
+        let {data} = await axios.get("验证地址")
+        if (data.code !== 0) return
+        clearInterval(tim)
+        // 将验证结果通过cb函数返回
+        cb(data.data)
+    }, 2000)
+})
+
+/**
  * Bot监听事件处理
  */
 
@@ -121,8 +140,11 @@ process.on("uncaughtException", error => {
 |Event|Description|
 |-----|-----------|
 |online|登入成功|
-|message|接收消息事件|
+|message.private|接收私聊消息事件|
+|message.villa|接收别野消息事件|
+|login.geetest|登入收到gt验证|
 
 ##### 其它
 
 * 我的别野ID：`FZJkxKs`,有问题可以到这里反馈
+* 验证地址可参考[mys_geetest_demo](https://github.com/nk-ava/mys_geetest_demo) 自行部署

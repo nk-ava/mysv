@@ -156,10 +156,10 @@ export interface HoYo {
 export interface Forward {
 	type: 'forward'
 	id: number | string
-	room_id?: number | string
-	villa_id?: number | string
-	villa_name?: string
-	room_name?: string
+	rid?: number | string
+	vid?: number | string
+	vname?: string
+	rname?: string
 	summary: {
 		uid?: string | number
 		nickname: string
@@ -568,11 +568,11 @@ export class Msg {
 	private async forward(m: Forward) {
 		this.sMsg = {
 			summary_list: m.summary || [],
-			room_name: m.room_name || "",
-			villa_name: m.villa_name || ""
+			room_name: m.rname || "",
+			villa_name: m.vname || ""
 		} as ForwardMsg
-		m.room_id && ((this.sMsg as ForwardMsg).room_id = String(m.room_id))
-		m.villa_id && ((this.sMsg as ForwardMsg).villa_id = String(m.villa_id))
+		m.rid && ((this.sMsg as ForwardMsg).room_id = String(m.rid))
+		m.vid && ((this.sMsg as ForwardMsg).villa_id = String(m.vid))
 		m.id && (this.sMsg.id = String(m.id))
 		this.brief = "[转发消息]"
 		this.obj_name = "MHY:ForwardMsg"

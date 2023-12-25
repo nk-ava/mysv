@@ -36,7 +36,7 @@ export class HttpClient {
 				const events: Array<Events> = await parser.doParse();
 				for (let e of events) {
 					this.c.stat.recv_event_cnt++
-					this.c.emit(parser.event_type, e)
+					this.c.em(parser.event_type, e)
 				}
 			}
 			res.status(200)

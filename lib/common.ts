@@ -4,7 +4,7 @@ import {Bot, RobotRunTimeError} from "./bot";
 import * as os from "os";
 import qr, {Bitmap} from "qr-image"
 import {promisify} from "util";
-import axios, {AxiosResponse} from "axios";
+import axios from "axios";
 import fs from "node:fs";
 import {UClient} from "./uClient";
 import * as readline from "readline";
@@ -243,7 +243,7 @@ export function localIP(): string | undefined {
 /** 获取二维码 */
 export async function fetchQrCode(this: Bot | UClient) {
 	let {data} = await axios.post("https://passport-api.miyoushe.com/account/ma-cn-passport/web/createQRLogin", {}, {
-		headers: getHeaders.call(this)
+		headers: getBbsHeaders.call(this)
 	})
 	if (data.retcode !== 0) throw new Error(`请求二维码失败, reason: ${data.message || "unknown"}`)
 	data = data.data
@@ -280,19 +280,43 @@ function logQrcode(img: Bitmap) {
 	}
 }
 
-function getHeaders(this: any) {
+export function getBbsHeaders(this: any) {
 	return {
-		"Content-Type": 'application/json',
 		"Origin": 'https://user.miyoushe.com',
 		"Referer": 'https://user.miyoushe.com/',
 		"X-Rpc-App_id": 'bll8iq97cem8',
 		"X-Rpc-Client_type": 4,
-		'X-Rpc-Device_model': 'Chrome%20114.0.0.0',
-		'X-Rpc-Device_name': 'Chrome',
-		'X-Rpc-Device_os': 'Windows%2010%2064-bit',
 		'X-Rpc-Game_biz': 'bbs_cn',
+		"x-rpc-source": "accountWebsite",
+		"Cookie": this.config.mys_ck || "",
 		"X-Rpc-Device_fp": this?.device?.bbs?.device_fp || "0000000000",
-		"X-Rpc-Device_id": this?.device?.bbs?.device_id || "b1af2490-1261-4258-bfad-ce3b76b1902c"
+		"X-Rpc-Device_id": this?.device?.bbs?.device_id || "b1af2490-1261-4258-bfad-ce3b76b1902c",
+	}
+}
+
+export function getClientHeaders(this: any) {
+	return {
+		"Accept": "application/json, text/plain, */*",
+		"Accept-Encoding": "gzip, deflate, br",
+		"Cookie": this.config.mys_ck,
+		'Referer': 'https://app.mihoyo.com',
+		'x-rpc-client_type': 2,
+		"x-rpc-device_fp": this.device.bbs?.device_fp || "0000000000",
+		"x-rpc-device_id": this.device.bbs?.device_id || this.device.device_fp,
+	}
+}
+
+export function getDbyHeaders(this: any) {
+	return {
+		"Origin": "https://dby.miyoushe.com",
+		"Referer": "https://dby.miyoushe.com/",
+		"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+		"X-Rpc-Client_type": 4,
+		"Cookie": this.config.mys_ck || "",
+		"X-Rpc-Device_fp": this?.device?.device_fp || "bd1d6e6f-8ee8-4d45-832e-a6e9de8fd2d3",
+		"X-Rpc-Device_id": this?.device?.device_fp || "bd1d6e6f-8ee8-4d45-832e-a6e9de8fd2d3",
+		"X-Rpc-Platform": 4,
+		"Rc-App-Key": "tdrvipkstcl55",
 	}
 }
 
@@ -301,6 +325,10 @@ export async function getMysCk(this: any, cb: Function) {
 	if (this.device && !this.device.bbs) {
 		this.device.bbs = (await genFullDevice(this.device)).bbs
 		fs.writeFile(`${this.config.data_dir}/device.json`, JSON.stringify(this.device, null, "\t"), () => {})
+	}
+	if (this.config.mys_ck) {
+		cb(true)
+		return
 	}
 	if (fs.existsSync(`${this.config.data_dir}/cookie`)) {
 		const ck = fs.readFileSync(`${this.config.data_dir}/cookie`, "utf-8")
@@ -360,11 +388,8 @@ async function captchaLogin(this: Bot | UClient, cb: Function) {
 	const timestamp = Date.now()
 	let {data} = await axios.get(`https://webapi.account.mihoyo.com/Api/create_mmt?scene_type=1&now=${timestamp}&reason=user.mihoyo.com#/login/captcha&action_type=login_by_mobile_captcha&t=${timestamp}`, {
 		headers: {
-			"Origin": "https://user.mihoyo.com",
-			"Referer": "https://user.mihoyo.com/",
-			"x-rpc-client_type": 4,
-			"x-rpc-mi_referrer": "https://user.mihoyo.com/#/login/captcha",
-			"x-rpc-source": "accountWebsite"
+			...getBbsHeaders.call(this),
+			"x-rpc-mi_referrer": "https://user.mihoyo.com/#/login/captcha"
 		}
 	})
 	if (data.code !== 200 || data?.data?.status !== 1) throw new Error("密码登入失败，reason " + data?.data?.msg || "unknown")
@@ -386,8 +411,7 @@ async function login_by_captcha(this: Bot | UClient, mmt_key: string, cb: Functi
 		headers: {
 			"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
 			"X-Rpc-Mi_referrer": "https://user.mihoyo.com/#/account/home",
-			"Origin": "https://user.mihoyo.com",
-			"Referer": "https://user.mihoyo.com/"
+			...getBbsHeaders.call(this)
 		}
 	})
 	if (data.code !== 200 || data?.data?.status !== 1) throw new Error(`发送验证码失败，reason： ${data?.data?.msg || "unknown"}`)
@@ -399,19 +423,15 @@ async function login_by_captcha(this: Bot | UClient, mmt_key: string, cb: Functi
 		const p = `mobile=${this.config.account}&mobile_captcha=${code}&source=user.mihoyo.com&t=${Date.now()}`
 		let {data} = await axios.post("https://webapi.account.mihoyo.com/Api/login_by_mobilecaptcha", p, {
 			headers: {
+				...getBbsHeaders.call(this),
 				"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
 				"X-Rpc-Mi_referrer": "https://user.mihoyo.com/#/account/home",
-				"Origin": "https://user.mihoyo.com",
-				"Referer": "https://user.mihoyo.com/",
-				"X-Rpc-Source": "accountWebsite",
-				"X-Rpc-Game_biz": "account_cn",
-				"x-rpc-client_type": 4,
-				"x-rpc-source": "accountWebsite"
+				"X-Rpc-Game_biz": "account_cn"
 			}
 		})
 		if (data.code !== 200 || data?.data?.status !== 1) throw new Error(`验证码登入失败，reason：${data?.data?.msg || "unknown"}`)
 		data = data?.data?.account_info
-		cb(await genToken(data?.weblogin_token || "", data?.account_id || ""))
+		cb(await genCookie(data?.weblogin_token || "", data?.account_id || ""))
 	})
 }
 
@@ -456,20 +476,17 @@ async function login_by_pwd(this: Bot | UClient, mmt_key: string, cb: Function, 
 	param += `&source=user.mihoyo.com&t=${Date.now()}`
 	let {data} = await axios.post("https://webapi.account.mihoyo.com/Api/login_by_password", param, {
 		headers: {
-			"Origin": "https://user.mihoyo.com",
-			"Referer": "https://user.mihoyo.com/",
+			...getBbsHeaders.call(this),
 			"x-rpc-mi_referrer": "https://user.mihoyo.com/",
-			"x-rpc-source": "accountWebsite",
 			"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-			"x-rpc-client_type": 4
 		}
 	})
 	if (data.code !== 200 || data?.data?.status !== 1) throw new Error(`密码登入失败，reason: ${data?.data?.msg}||"unknown"`)
 	data = data?.data?.account_info
-	cb(await genToken(data?.weblogin_token || "", data?.account_id || ""))
+	cb(await genCookie(data?.weblogin_token || "", data?.account_id || ""))
 }
 
-async function genToken(login_ticket: string, login_uid: string) {
+async function genCookie(login_ticket: string, login_uid: string) {
 	let url = "https://api-takumi.mihoyo.com/auth/api/getMultiTokenByLoginTicket";
 	let query = `login_ticket=${login_ticket}&token_types=3&uid=${login_uid}`;
 	let {data} = await axios.get(url + "?" + query)
@@ -498,12 +515,12 @@ function scanQrLogin(this: any, cb: Function) {
 		clearInterval(this.interval)
 		_QrCodeLogin.call(this).then()
 	})
-	this.on("qrLogin.success", (ck: any) => {
+	this.on("login.success.qr", (ck: any) => {
 		this.logger.info("二维码扫码登入成功")
 		rl.close()
 		cb(ck)
 	})
-	this.on("qrLogin.error", (e: any) => {
+	this.on("login.error.qr", (e: any) => {
 		this.logger.error("登入失败：reason " + e)
 	})
 	_QrCodeLogin.call(this).then()
@@ -515,13 +532,13 @@ async function _QrCodeLogin(this: Bot | UClient) {
 	console.log(`二维码已保存到${img}`)
 	this.interval = setInterval(async () => {
 		this.logger.debug('请求二维码状态...')
-		const res: AxiosResponse = await axios.post("https://passport-api.miyoushe.com/account/ma-cn-passport/web/queryQRLoginStatus?ticket=" + ticket, {}, {
-			headers: getHeaders.call(this)
+		const res = await axios.post("https://passport-api.miyoushe.com/account/ma-cn-passport/web/queryQRLoginStatus?ticket=" + ticket, {}, {
+			headers: getBbsHeaders.call(this)
 		})
 		let status = res?.data
 		if (!status) return
 		if (status.message !== 'OK') {
-			this.emit("qrLogin.error", status?.message || "unknown")
+			this.emit("login.error.qr", status?.message || "unknown")
 			clearInterval(this.interval)
 			return
 		}
@@ -530,14 +547,14 @@ async function _QrCodeLogin(this: Bot | UClient) {
 		if (status === 'Confirmed') {
 			const set_cookie = res.headers["set-cookie"]
 			if (!set_cookie) {
-				this.emit("qrLogin.error", "没有获取到cookie, 请刷新重试")
+				this.emit("login.error.qr", "没有获取到cookie, 请刷新重试")
 				clearInterval(this.interval)
 				return
 			}
 			let cookie = ""
 			for (let ck of set_cookie) cookie += ck.split("; ")[0] + "; "
-			if (cookie === "") this.emit("qrLogin.error", "获取到的cookie为空，请刷新二维码重新获取")
-			else this.emit("qrLogin.success", cookie)
+			if (cookie === "") this.emit("login.error.qr", "获取到的cookie为空，请刷新二维码重新获取")
+			else this.emit("login.success.qr", cookie)
 			clearInterval(this.interval)
 		}
 	}, 2000)

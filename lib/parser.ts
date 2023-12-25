@@ -180,24 +180,25 @@ export default class Parser {
 		if (!obj_name.startsWith("MHY")) return
 		if (/^MHY:((SYS)|(SIG)):.*$/.test(obj_name)) return
 		const content = JSON.parse(proto[5])
+		if (Number(content?.user?.id) === (this.c as UClient).uid && (this.c as UClient).config.ignore_self) return
 		let src = proto[13]
 		if (src) src = JSON.parse(src)
 		const source = proto[18]?.[1]?.split("|")
 		const m = proto[16]?.split("：")
 		const msg = {
-			from_uid: Number(proto[1]) || proto[1],
+			from_uid: Number(content.user.id) || content.user.id,
 			obj_name: obj_name,
 			user: content.user,
 			quote: content.quote ? {
 				send_time: content?.quote?.quoted_message_send_time,
 				message_id: content?.quote?.quoted_message_id
 			} : undefined,
-			message: this.parseContent(content.content, content.panel, obj_name),
+			message: this.parseContent(content?.content, content?.panel, obj_name),
 			send_time: Number(proto[6]),
 			msg_id: proto[9],
 			src: src.osSrc || "unknown",
-			msg: content.content.text || m?.[1] || "",
-			nickname: m?.[0] || content.user.name || "unknown"
+			msg: content?.content?.text || m?.[1] || this.brief(obj_name) || "",
+			nickname: content?.user?.name || m?.[0] || "unknown"
 		} as Message
 		if (source && source[0] === "私信通知") {
 			msg.isPrivate = true
@@ -235,16 +236,43 @@ export default class Parser {
 		}
 	}
 
+	private brief(obj_name: string) {
+		switch (obj_name) {
+			case "HMY:Text":
+				return "[文本消息]"
+			case "MHY:Image":
+				return "[图片]"
+			case "MHY:ForwardMsg":
+				return "[转发消息]"
+			case "MHY:RobotCard":
+				return "[机器人卡片]"
+			case "MHY:VillaCard":
+				return "[别野卡片]"
+			case "MHY:AvatarEmoticon":
+			case "MHY:HoYomoji":
+			case "MHY:RandomEmoticon":
+				return "[HoYo表情]"
+			case "MHY:Post":
+				return "[帖子]"
+			case "MHY:Emoticon":
+				return "[米游社表情]"
+			case "MHY:CustomEmoticon":
+				return "[自定义表情]"
+			case "MHY:VillaEmoticon":
+				return "[别野专属表情]"
+		}
+	}
+
 	/** 米游社用户暂时只能对机器人发送MHY:Text类型消息，所以暂时只解析MYH：Text类型消息和组件消息 */
 	private parseContent(content: any, panel?: any, obj_name?: string): Elem[] {
 		/** 解析MHY:ForwardMsg */
 		if (obj_name === "MHY:ForwardMsg") {
 			return [{
 				type: "forward",
-				room_id: content.room_id,
-				room_name: content.room_name,
-				villa_id: content.villa_id,
-				villa_name: content.villa_name,
+				rid: content.room_id,
+				rname: content.room_name,
+				vid: content.villa_id,
+				vname: content.villa_name,
 				summary: content.summary_list
 			} as Forward]
 		}
