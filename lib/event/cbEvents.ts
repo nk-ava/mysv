@@ -1,5 +1,5 @@
 import {BaseEvent, MessageRet} from "./baseEvent";
-import {Elem} from "../message";
+import {Elem, ImageMsg} from "../message";
 
 /** 用户加入事件 */
 export interface JoinVilla extends BaseEvent {
@@ -71,6 +71,8 @@ export interface QuoteMsg {
 	from_user_nickname: string
 	/** 发送者 id（字符串）可携带机器人发送者的id */
 	from_user_id_str: string
+	/** 图片消息 */
+	images?: string[]
 }
 
 /** 新增机器人事件 */

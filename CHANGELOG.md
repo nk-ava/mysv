@@ -1,8 +1,15 @@
+# 1.0.16-SNAPSHOT
+
+#### 2023.12.25
+
+* feat: 跟进[开发文档](https://webstatic.mihoyo.com/vila/bot/doc/changelog/) ，http和ws的quote_msg增加images字段。
+
 # v1.0.15
 
 ***
 
 #### 2023.12.24
+
 * feat: 接收和发送私聊消息
 * feat: 支持密码和验证码登入，密码验证码登入获得的cookie更全，包括stoken
 * fix：修复已知问题
