@@ -444,7 +444,7 @@ export class Msg {
 					id: m.id,
 					text: m.text,
 					type: 1,
-					need_callback: m.cb || true,
+					need_callback: typeof m.cb === "undefined" ? true : m.cb,
 					extra: m.extra,
 					c_type: CType[m.c_type || "cb"],
 					input: m.input,
@@ -461,7 +461,7 @@ export class Msg {
 					id: m.id,
 					text: m.text,
 					type: 1,
-					need_callback: m.cb || true,
+					need_callback: typeof m.cb === "undefined" ? true : m.cb,
 					extra: m.extra,
 					c_type: CType[m.c_type || "cb"],
 					input: m.input,
@@ -478,7 +478,7 @@ export class Msg {
 					id: m.id,
 					text: m.text,
 					type: 1,
-					need_callback: m.cb || true,
+					need_callback: typeof m.cb === "undefined" ? true : m.cb,
 					extra: m.extra,
 					c_type: CType[m.c_type || "cb"],
 					input: m.input,
@@ -694,12 +694,14 @@ export const segment = {
 		if (c_type === "input" && content) {
 			return {
 				...elem,
-				input: content
+				input: content,
+				cb: false
 			}
 		} else if (c_type === "link" && content) {
 			return {
 				...elem,
-				link: content
+				link: content,
+				cb: false
 			}
 		}
 		return elem
