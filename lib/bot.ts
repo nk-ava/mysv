@@ -245,7 +245,7 @@ export class Bot extends EventEmitter {
 
 	/** 获取大别野信息 */
 	async getVillaInfo(villa_id: number) {
-		return (await this.pickVilla(villa_id))?.getInfo();
+		return (await this.pickVilla(villa_id))?.info;
 	}
 
 	/** 获取别野用户信息 */
@@ -277,7 +277,11 @@ export class Bot extends EventEmitter {
 	/** 撤回消息 */
 	async recallMessage(villa_id: number, msg_id: string, room_id: number, msg_time: number) {
 		const path = "/vila/api/bot/platform/recallMessage"
-		return await this.fetchResult(villa_id, path, 'get', `?msg_id=${msg_id}&room_id=${room_id}&msg_time=${msg_time}`)
+		return await this.fetchResult(villa_id, path, 'post', ``, {
+			msg_uid: msg_id,
+			room_id: room_id,
+			msg_time: msg_time
+		})
 	}
 
 	/** 创建分组 */

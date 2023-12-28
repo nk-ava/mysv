@@ -36,7 +36,7 @@ export interface SendMessage extends BaseEvent {
 	/** 发送者 id */
 	from_uid: number
 	/** 发送时间的时间戳 */
-	send_at: number
+	send_time: number
 	/** 房间 id */
 	room_id: number
 	/** 目前只支持文本类型消息 */
@@ -128,7 +128,7 @@ export interface ClickMsgComponent extends BaseEvent {
 	/** 房间 id */
 	room_id: number
 	/** 用户 id */
-	uid: number
+	from_uid: number
 	/** 消息 id */
 	msg_id: string
 	/** 如果消息从属于机器人，则该字段不为空字符串 */

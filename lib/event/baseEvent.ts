@@ -1,12 +1,16 @@
+import {Villa} from "../villa";
+
 export interface BaseEvent {
 	/** 事件来源 */
 	source: Source,
 	/** 事件id */
 	id: string
 	/** 事件创建时间 */
-	created_time: number
+	created_at: number
 	/** 回调时间 */
-	send_time: number
+	send_at: number
+	/** villa对象 */
+	villa?: Villa
 }
 
 export interface Source {

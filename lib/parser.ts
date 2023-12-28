@@ -43,18 +43,20 @@ export default class Parser {
 					bot: event.robot.template
 				},
 				id: event.id,
-				created_time: Number(event.created_at),
-				send_time: Number(event.send_at)
+				created_at: Number(event.created_at),
+				send_at: Number(event.send_at),
 			}
-			this.event_data = event?.extend_data?.EventData || event?.extend_data
+			this.event_data = event?.extend_dta?.EventData || event?.extend_data
 		}
 	}
 
 	async doParse(): Promise<Array<Events>> {
 		const es: [string, any][] = Object.entries(this.event_data)
 		const rs = new Array<Events>()
-		let info = await Villa.getInfo((this.c as Bot), this.baseEvent.source.villa_id) as VillaInfo
+		const villa = await (this.c as Bot).pickVilla(this.baseEvent.source.villa_id)
+		let info = villa?.info as any
 		this.baseEvent.source.villa_name = info.name
+		this.baseEvent.villa = villa
 		for (let [k, v] of es) {
 			switch (k) {
 				case "JoinVilla":
@@ -156,7 +158,7 @@ export default class Parser {
 					rs.push({
 						...this.baseEvent,
 						room_id: Number(v.room_id),
-						uid: Number(v.uid),
+						from_uid: Number(v.uid),
 						msg_id: v.msg_uid,
 						bot_msg_id: v.bot_msg_id,
 						component_id: v.component_id,

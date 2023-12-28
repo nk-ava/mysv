@@ -683,14 +683,26 @@ export const segment = {
 			style: style
 		}
 	},
-	button: (id: string, c_type: 'input' | 'link' | 'cb', size?: 'small' | 'middle' | 'big'): Button => {
-		return {
+	button: (id: string, c_type: 'input' | 'link' | 'cb', content?: string, size?: 'small' | 'middle' | 'big'): Button => {
+		const elem = {
 			type: "button",
 			id: id,
 			text: id,
 			c_type: c_type,
 			size: size
+		} as Button
+		if (c_type === "input" && content) {
+			return {
+				...elem,
+				input: content
+			}
+		} else if (c_type === "link" && content) {
+			return {
+				...elem,
+				link: content
+			}
 		}
+		return elem
 	},
 	template: (id: number): Template => {
 		return {

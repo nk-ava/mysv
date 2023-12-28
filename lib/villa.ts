@@ -39,7 +39,7 @@ export class Villa {
 	}
 
 	/** 获取大别野信息 */
-	async getInfo() {
+	get info() {
 		return this._info
 	}
 
@@ -155,7 +155,7 @@ export class Villa {
 	}
 
 	/** 创建身份组 */
-	async createRole(name: string, color: C, permissions: Perm[]) {
+	async createRole(name: string, color: C, permissions: Perm[]): Promise<{ id: string }> {
 		return this.c.fetchResult(this.vid, "/vila/api/bot/platform/createMemberRole", "post", "", {
 			name: name,
 			color: Color[color],
