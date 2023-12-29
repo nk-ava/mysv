@@ -1,17 +1,10 @@
 import {
-	AtAll,
-	AtRobot,
-	AtUser, BadgeMsg, Component, CVEmoticonMsg, EmoticonMsg,
-	Entity,
-	FontStyle, ForwardMsg, HoYomoji,
-	ImageMsg,
-	LinkMsg,
-	LinkRoomMsg,
-	MentionedInfo,
-	MsgContentInfo, Panel, PostMsg, PreviewLinkMsg, RobotCardMsg, SMsg, TextMsg, UserMsg, VillaCardMsg
+	AtAll, AtRobot, AtUser, BadgeMsg, Component, CVEmoticonMsg, EmoticonMsg, Entity, FontStyle, ForwardMsg, HoYomoji,
+	ImageMsg, LinkMsg, LinkRoomMsg, LinkRoomType, MentionedInfo, MsgContentInfo, Panel, PostMsg, PreviewLinkMsg,
+	RobotCardMsg, SMsg, TextMsg, UserMsg, VillaCardMsg
 } from "./message";
 import {Bot} from "../bot";
-import {Villa} from "../villa";
+import {RoomType, Villa} from "../villa";
 import * as fs from "fs";
 import {UClient} from "../uClient";
 
@@ -101,6 +94,8 @@ export interface LinkRoom {
 	vid: string | number
 	/** 房间ID */
 	rid: string | number
+	/** 房间类型 */
+	rtp?: rlinkType
 }
 
 export interface PreviewLink {
@@ -166,6 +161,8 @@ export interface Forward {
 		content: string
 	}[]
 }
+
+export type rlinkType = "post" | "chat" | "scene" | "live" | "talking"
 
 export type Elem = User | Text | At | Image | Link | LinkRoom | Button | Template | PreviewLink | Badge | SElem | string
 
@@ -391,9 +388,12 @@ export class Msg {
 
 	private async rlink(m: LinkRoom) {
 		if (!m.vid || !m.rid) return
-		if (!m.name) {
-			if (this.c instanceof Bot) m.name = (await (await Villa.get(this.c, Number(m.vid)))?.getRoom(Number(m.rid)))?.room_name || '这个房间'
-			else m.name = "这个房间"
+		if (!m.name || !m.rtp) {
+			if (this.c instanceof Bot) {
+				const room = await (await Villa.get(this.c, Number(m.vid)))?.getRoom(Number(m.rid))
+				!m.name && (m.name = room?.room_name || '这个房间')
+				!m.rtp && (m.rtp = convertRoomType(room?.room_type))
+			} else m.name = "这个房间"
 		}
 		this.t += `#${m.name} `
 		this.brief += `[#${m.name}](${m.vid}-${m.rid})`
@@ -402,7 +402,8 @@ export class Msg {
 			entity: {
 				type: 'villa_room_link',
 				villa_id: `${m.vid}`,
-				room_id: `${m.rid}`
+				room_id: `${m.rid}`,
+				room_type: LinkRoomType[m.rtp || "chat"]
 			} as LinkRoomMsg,
 			offset: this.offset,
 			length: m.name.length + 2
@@ -747,4 +748,9 @@ export const segment = {
 			name: name
 		}
 	}
+}
+
+function convertRoomType(type: RoomType | undefined): rlinkType {
+	if (!type) return "chat"
+	return (type.split("_")?.[4]?.toLowerCase() || "chat") as rlinkType
 }

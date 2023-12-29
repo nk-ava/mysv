@@ -228,6 +228,8 @@ export class Villa {
 export type RoomType = "BOT_PLATFORM_ROOM_TYPE_CHAT_ROOM"	        //聊天房间
 	| "BOT_PLATFORM_ROOM_TYPE_POST_ROOM"	                        //帖子房间
 	| "BOT_PLATFORM_ROOM_TYPE_SCENE_ROOM"	                        //场景房间
+	| "BOT_PLATFORM_ROOM_TYPE_LIVE_ROOM"                            //直播房间
+	| "BOT_PLATFORM_ROOM_TYPE_TALKING_ROOM"                         //语音房间
 	| "BOT_PLATFORM_ROOM_TYPE_INVALID"	                            //无效
 
 export type NoticeType = "BOT_PLATFORM_DEFAULT_NOTIFY_TYPE_NOTIFY"	//默认通知

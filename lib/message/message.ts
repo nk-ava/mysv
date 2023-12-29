@@ -29,6 +29,13 @@ export interface QuoteInfo {
 	original_message_send_time: number
 }
 
+export enum LinkRoomType {
+	"chat" = "RoomTypeChatRoom",
+	"post" = "RoomTypePostRoom",
+	"scene" = "RoomTypeSceneRoom",
+	"live" = "RoomTypeLiveRoom",
+	"talking" = "RoomTypeTalkingRoom"
+}
 
 export interface Quotable {
 	/** 引用消息的消息id */
@@ -171,6 +178,7 @@ export interface LinkRoomMsg {
 	type: "villa_room_link"
 	villa_id: string
 	room_id: string
+	room_type: LinkRoomType
 }
 
 export interface LinkMsg {
