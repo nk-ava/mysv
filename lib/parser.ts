@@ -202,6 +202,7 @@ export default class Parser {
 			msg: content?.content?.text || m?.[1] || this.brief(obj_name) || "",
 			nickname: content?.user?.name || m?.[0] || "unknown"
 		} as Message
+		msg.atme = msg.message.filter((m: any) => (m.type === "at" && m.id == (this.c as UClient).config.uid)).length !== 0
 		if (source && source[0] === "私信通知") {
 			msg.isPrivate = true
 			msg.reply = async (content: Elem | Elem[], quote?: boolean) => {

@@ -77,11 +77,10 @@ export class WsClient extends WebSocket {
 		}, 30000)
 	}
 
-	private watchEvents(cb: Function) {
+	private watchEvents(cb: any) {
 		this.on("open", async () => {
 			this.c.logger.info(`连接已建立，ws地址：${this.info.websocket_url}`)
-			cb()
-			await this.doPLogin()
+			this.doPLogin().then(cb)
 		})
 		this.on("message", async (buf) => {
 			await this.unPackaging(buf as Buffer)
@@ -91,7 +90,7 @@ export class WsClient extends WebSocket {
 		})
 	}
 
-	private async doPLogin() {
+	private async doPLogin(): Promise<void> {
 		const body = {
 			/** 长连接侧唯一id，uint64格式 */
 			1: BigInt(this.info.uid),

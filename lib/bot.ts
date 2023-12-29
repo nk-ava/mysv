@@ -148,9 +148,9 @@ export class Bot extends EventEmitter {
 			if (!ck) throw new RobotRunTimeError(-1, "cookie获取失败")
 			this.config.mys_ck = ck
 			fs.writeFile(`${this.config.data_dir}/cookie`, ck, () => {})
-			this.run().then(() => this.em("online"))
+			this.run().then(() => this.emit("online"))
 		}).then()
-		else this.run().then(() => this.em("online"))
+		else this.run().then(() => this.emit("online"))
 
 		lock(this, "enSecret")
 		lock(this, "config")

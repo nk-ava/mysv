@@ -33,5 +33,7 @@ export interface Message {
 
 	isPrivate: boolean
 
+	atme?: boolean
+
 	reply?: (content: Elem | Elem[], quote?: boolean) => Promise<{ msgId: string }>
 }
