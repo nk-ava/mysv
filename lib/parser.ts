@@ -11,6 +11,7 @@ import {
 } from "./message";
 import {UClient} from "./uClient";
 import {Message} from "./core";
+import {uVilla} from "./core/uVilla";
 
 export type Events = JoinVilla | SendMessage | CreateBot | DeleteBot | AddQuickEmoticon | AuditCallback
 
@@ -220,6 +221,7 @@ export default class Parser {
 				villa_name: source?.[0]?.trim() || "unknown",
 				room_name: source?.[1]?.trim() || "unknown",
 			}
+			msg.villa = uVilla.get(this.c as UClient, msg.source.villa_id)
 			msg.reply = async (content: Elem | Elem[], quote?: boolean) => {
 				const q = quote ? {
 					message_id: msg.msg_id,

@@ -280,6 +280,7 @@ function logQrcode(img: Bitmap) {
 	}
 }
 
+/** BBS请求头 */
 export function getBbsHeaders(this: any) {
 	return {
 		"Origin": 'https://user.miyoushe.com',
@@ -294,6 +295,7 @@ export function getBbsHeaders(this: any) {
 	}
 }
 
+/** 手机客户端请求头 */
 export function getClientHeaders(this: any) {
 	return {
 		"Accept": "application/json, text/plain, */*",
@@ -306,6 +308,7 @@ export function getClientHeaders(this: any) {
 	}
 }
 
+/** DBY请求头 */
 export function getDbyHeaders(this: any) {
 	return {
 		"Origin": "https://dby.miyoushe.com",
@@ -369,6 +372,89 @@ export async function getMysCk(this: any, cb: Function) {
 				break
 		}
 	})
+}
+
+/** clientUniqueId */
+export function ZO(Un = 0) {
+	let e = ((4294967295 & Date.now()) >>> 0).toString(2)
+		, t = Math.floor(Math.random() * (Math.pow(2, 20) - 1))
+		, n = e + Un.toString(2).padStart(11, "0") + t.toString(2).padStart(20, "0");
+	return Un = 2047 & ++Un,
+		parseInt(n, 2)
+}
+
+/** 使用cookie上传图片 */
+export async function uploadImageWithCk(this: Bot | UClient, readable: stream.Readable, e: string | undefined): Promise<string> {
+	if (!this.config.mys_ck) throw new Error("未配置mys_ck，无法调用上传接口")
+	if (!readable.readable) throw new Error("The first argument is not readable stream")
+	/** 支持jpg,jpeg,png,gif,bmp **/
+	const ext = e || 'png';
+	const file = await md5Stream(readable);
+	const md5 = file.md5.toString("hex");
+	const {data} = await axios.post(
+		`https://bbs-api.miyoushe.com/apihub/wapi/getUploadParams`, {
+			biz: 'community',
+			ext: ext,
+			md5: md5,
+			extra: {
+				upload_source: "UPLOAD_SOURCE_COMMUNITY"
+			},
+			support_content_type: true
+		}, {
+			headers: {
+				"cookie": this.config.mys_ck
+			}
+		})
+	if (!data.data) throw new Error(data.message)
+	const param = data.data
+	const form = new FormData();
+	form.append("x:extra", param.params['callback_var']['x:extra']);
+	form.append("OSSAccessKeyId", param.params.accessid);
+	form.append("signature", param.params.signature);
+	form.append("success_action_status", '200');
+	form.append("name", param.file_name);
+	form.append("callback", param.params.callback);
+	form.append("x-oss-content-type", param.params.x_oss_content_type);
+	form.append("key", param.file_name);
+	form.append("policy", param.params.policy);
+	form.append("file", file.buff, {filename: param.params.name});
+	const result = (await axios.post(param.params.host, form, {
+		headers: {...form.getHeaders(), "Connection": 'Keep-Alive', "Accept-Encoding": "gzip"}
+	})).data
+	if (!result.data) throw new Error(result.message)
+	return result.data.url
+}
+
+function shouldEscape(s: string): boolean {
+	return /[^a-zA-Z0-9\-_\.~]/.test(s)
+}
+
+function btr(a: bigint, w: bigint): bigint {
+	const mask = BigInt(1) << w
+	return a & (~mask)
+}
+
+function shr(a: bigint, w: bigint, padding: bigint): bigint {
+	return (a << (64n - w)) | (padding >> w)
+}
+
+function mul(a: bigint, b: bigint): bigint {
+	DX = 0n
+	const res = a * b
+	DX = res >> 64n
+	return res & 0xffffffffffffffffn
+}
+
+function add(a: bigint, b: bigint): bigint {
+	const res = a + b
+	CF = !!(res >> 64n);
+	return res & 0xffffffffffffffffn
+}
+
+function adc(a: bigint, b: bigint): bigint {
+	const res = a + b
+	if (CF) return (res + 1n) & 0xffffffffffffffffn
+	return res & 0xffffffffffffffffn
 }
 
 async function captchaLogin(this: Bot | UClient, cb: Function) {
@@ -558,87 +644,4 @@ async function _QrCodeLogin(this: Bot | UClient) {
 			clearInterval(this.interval)
 		}
 	}, 2000)
-}
-
-/** clientUniqueId */
-export function ZO(Un = 0) {
-	let e = ((4294967295 & Date.now()) >>> 0).toString(2)
-		, t = Math.floor(Math.random() * (Math.pow(2, 20) - 1))
-		, n = e + Un.toString(2).padStart(11, "0") + t.toString(2).padStart(20, "0");
-	return Un = 2047 & ++Un,
-		parseInt(n, 2)
-}
-
-/** 使用cookie上传图片 */
-export async function uploadImageWithCk(this: Bot | UClient, readable: stream.Readable, e: string | undefined): Promise<string> {
-	if (!this.config.mys_ck) throw new Error("未配置mys_ck，无法调用上传接口")
-	if (!readable.readable) throw new Error("The first argument is not readable stream")
-	/** 支持jpg,jpeg,png,gif,bmp **/
-	const ext = e || 'png';
-	const file = await md5Stream(readable);
-	const md5 = file.md5.toString("hex");
-	const {data} = await axios.post(
-		`https://bbs-api.miyoushe.com/apihub/wapi/getUploadParams`, {
-			biz: 'community',
-			ext: ext,
-			md5: md5,
-			extra: {
-				upload_source: "UPLOAD_SOURCE_COMMUNITY"
-			},
-			support_content_type: true
-		}, {
-			headers: {
-				"cookie": this.config.mys_ck
-			}
-		})
-	if (!data.data) throw new Error(data.message)
-	const param = data.data
-	const form = new FormData();
-	form.append("x:extra", param.params['callback_var']['x:extra']);
-	form.append("OSSAccessKeyId", param.params.accessid);
-	form.append("signature", param.params.signature);
-	form.append("success_action_status", '200');
-	form.append("name", param.file_name);
-	form.append("callback", param.params.callback);
-	form.append("x-oss-content-type", param.params.x_oss_content_type);
-	form.append("key", param.file_name);
-	form.append("policy", param.params.policy);
-	form.append("file", file.buff, {filename: param.params.name});
-	const result = (await axios.post(param.params.host, form, {
-		headers: {...form.getHeaders(), "Connection": 'Keep-Alive', "Accept-Encoding": "gzip"}
-	})).data
-	if (!result.data) throw new Error(result.message)
-	return result.data.url
-}
-
-function shouldEscape(s: string): boolean {
-	return /[^a-zA-Z0-9\-_\.~]/.test(s)
-}
-
-function btr(a: bigint, w: bigint): bigint {
-	const mask = BigInt(1) << w
-	return a & (~mask)
-}
-
-function shr(a: bigint, w: bigint, padding: bigint): bigint {
-	return (a << (64n - w)) | (padding >> w)
-}
-
-function mul(a: bigint, b: bigint): bigint {
-	DX = 0n
-	const res = a * b
-	DX = res >> 64n
-	return res & 0xffffffffffffffffn
-}
-
-function add(a: bigint, b: bigint): bigint {
-	const res = a + b
-	CF = !!(res >> 64n);
-	return res & 0xffffffffffffffffn
-}
-
-function adc(a: bigint, b: bigint): bigint {
-	const res = a + b
-	if (CF) return (res + 1n) & 0xffffffffffffffffn
-	return res & 0xffffffffffffffffn
 }

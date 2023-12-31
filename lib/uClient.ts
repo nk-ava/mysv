@@ -1,7 +1,7 @@
 import EventEmitter from "node:events";
 import * as log4js from "log4js"
 import fs from "fs";
-import {BUF0, getClientHeaders, getMysCk, lock, TMP_PATH, uploadImageWithCk, ZO} from "./common";
+import {BUF0, getClientHeaders, getDbyHeaders, getMysCk, lock, TMP_PATH, uploadImageWithCk, ZO} from "./common";
 import * as pb from "./core/protobuf";
 import Parser from "./parser";
 import {Device, genShortDevice, getRequestAndMessageParams, Message, Network, Writer} from "./core";
@@ -9,6 +9,7 @@ import crypto from "crypto";
 import axios from "axios";
 import {Readable} from "node:stream";
 import {Elem, Forward, Msg, Quotable, QuoteInfo} from "./message";
+import {uVilla, uVillaInfo} from "./core/uVilla";
 
 const pkg = require("../package.json")
 
@@ -61,7 +62,9 @@ export interface UClient {
 	/** 服务启动成功 */
 	on(name: 'online', listener: (this: this) => void): this
 
-	on(name: "message", listener: (this: this, e: Message) => void): this
+	on(name: "message.villa", listener: (this: this, e: Message) => void): this
+
+	on(name: "message.private", listener: (this: this, e: Message) => void): this
 
 	on(name: string, listener: (this: this, ...args: any[]) => void): this
 }
@@ -85,6 +88,7 @@ export class UClient extends EventEmitter {
 	readonly uid: number
 	readonly config: UClientConfig
 	readonly device: Device
+	readonly vl = new Map<number, uVillaInfo>()
 	readonly sig = {
 		seq: 1,
 		timestamp_pullUgMsg: 0,
@@ -130,6 +134,7 @@ export class UClient extends EventEmitter {
 		lock(this, "sig")
 		lock(this, "trace")
 		lock(this, "device")
+		lock(this, "vl")
 	}
 
 	get interval() {
@@ -144,6 +149,31 @@ export class UClient extends EventEmitter {
 		this.keepAlive = s
 	}
 
+	/** 初始化加入的别野 */
+	private async initVl() {
+		const {data} = await axios.get("https://bbs-api.miyoushe.com/vila/wapi/home/list", {
+			headers: getDbyHeaders.call(this)
+		})
+		if (data.retcode !== 0) throw new UClientRunTimeError(data.retcode, `获取大别野信息失败, reason: ${data.message}`)
+		const list = data.data.villa_home_list
+		for (let villa_home of list) {
+			const villa = villa_home.villa_info
+			villa.villa_id = Number(villa.villa_id)
+			this.vl.set(villa.villa_id, {
+				villa_id: villa.villa_id,
+				name: villa.name,
+				villa_avatar_url: villa.villa_avatar_url,
+				owner_uid: Number(villa.owner_uid),
+				is_official: villa.is_official,
+				introduce: villa.introduce,
+				category_id: villa.category_id,
+				tags: villa.tags,
+				outer_id: villa.outer_id,
+				villa_created_at: Number(villa.villa_created_at),
+			} as uVillaInfo)
+		}
+	}
+
 	/** 输出包信息 */
 	private printPkgInfo() {
 		this.logger.mark("---------------")
@@ -154,6 +184,7 @@ export class UClient extends EventEmitter {
 
 	private async newUClient() {
 		try {
+			await this.initVl()
 			this[NET] = await Network.new(this, this.uid, this.device.config)
 			this[NET].on("close", async (code, reason) => {
 				this.clear()
@@ -163,7 +194,7 @@ export class UClient extends EventEmitter {
 					await this.newUClient()
 				}, 5000)
 			})
-			this[NET].on("open", () => {
+			this[NET].on("open", async () => {
 				this.logger.info(`建立连接成功，ws地址：${this[NET].remote}`)
 				this[HEARTBEAT] = setInterval((function heartbeat(this: UClient): Function {
 					this[NET].send(Buffer.from("c0", 'hex'), () => {
@@ -185,7 +216,7 @@ export class UClient extends EventEmitter {
 				fs.unlinkSync(`${this.config.data_dir}/cookie`)
 				return
 			}
-			if ((err as Error).message.includes("账号不一致")) {
+			if ((err as Error).message.includes("账号不一致") || (err as Error).message.includes("获取大别野信息失败")) {
 				this.logger.error((err as Error).message)
 				return
 			}
@@ -234,8 +265,8 @@ export class UClient extends EventEmitter {
 		}
 		const {pkt, seq} = this.buildPkt(pb.encode(body), "ugMsg", villa_id)
 		const id = await this[FN_SEND](pkt, seq)
-		const villa: any = {} // 获取别野信息
-		if (id) this.logger.info(`succeed to send: [Villa: ${villa?.name || "unknown"}](${villa_id})] ${brief}`)
+		const villa = uVilla.get(this, villa_id) as uVilla // 获取别野信息
+		if (id) this.logger.info(`succeed to send: [Villa: ${villa.info?.name || "unknown"}(${villa_id})] ${brief}`)
 		return {
 			msgId: id
 		}
@@ -263,7 +294,6 @@ export class UClient extends EventEmitter {
 		}
 		const {pkt, seq} = this.buildPkt(pb.encode(body), "ppMsgP", uid)
 		const id = await this[FN_SEND](pkt, seq)
-		const villa: any = {} // 获取别野信息
 		if (id) this.logger.info(`succeed to send: [Private: (${uid})] ${brief}`)
 		return {
 			msgId: id
@@ -491,7 +521,7 @@ export class UClient extends EventEmitter {
 			1: 0,
 			2: 0
 		}), "pullUgSes", this.uid).pkt)
-		this.em("online")
+		this.emit("online")
 	}
 
 	private listener0x6(buf: Buffer, param: any) {
@@ -656,6 +686,17 @@ export class UClient extends EventEmitter {
 			let index = name.lastIndexOf(".")
 			name = name.substring(0, index)
 		}
+	}
+
+	async fetchHttp(url: string, method: "post" | "get", body?: any) {
+		const {data} = await axios({
+			method: method,
+			url: url,
+			data: body,
+			headers: getDbyHeaders.call(this)
+		})
+		if (data.retcode !== 0) throw new UClientRunTimeError(data.retcode, `${url}请求失败，reason：${data.message || "unknown"}`)
+		return data.data
 	}
 }
 

@@ -1,12 +1,13 @@
 import {Bot, RobotRunTimeError} from "./bot";
 import {Color, MemberInfo, C, MemberRole} from "./user";
+import {lock} from "./common";
 
 const VillaMap = new WeakMap<VillaInfo, Villa>()
 
 export class Villa {
 	private readonly vid: number;
 	private readonly _info: VillaInfo
-	private c: Bot;
+	private readonly c: Bot;
 	private readonly ml = new Map<number, MemberInfo>()
 	private readonly rl = new Map<number, RoomInfo>()
 	private readonly gl = new Map<number, string>()
@@ -16,6 +17,12 @@ export class Villa {
 		this.c = c
 		this.vid = vid
 		this._info = info
+
+		lock(this, "c")
+		lock(this, "ml")
+		lock(this, "rl")
+		lock(this, "gl")
+		lock(this, "roles")
 	}
 
 	static async get(c: Bot, vid: number) {
@@ -68,11 +75,15 @@ export class Villa {
 	}
 
 	/** 获取房间信息 */
-	async getRoom(room_id: number, force: boolean = false) {
-		if (force || !this.rl.has(room_id)) {
-			await this.getRooms(true)
+	async getRoom(room_id: number, detail: boolean = true, force: boolean = false) {
+		if (this.rl.has(room_id) && !force) {
+			const room = this.roles.get(room_id)
+			if (room && (room.is_detail || !detail)) return room
 		}
-		return this.rl.get(room_id)
+		const rs = (await this.c.fetchResult(this.vid, "/vila/api/bot/platform/getRoom", "get", `?room_id=${room_id}`)).room
+		rs.is_detail = true
+		this.rl.set(room_id, rs)
+		return rs
 	}
 
 	/** 获取别野房间列表信息 */
@@ -84,6 +95,7 @@ export class Villa {
 			for (let g of groups) {
 				this.gl.set(Number(g.group_id), g.group_name)
 				for (let r of g.room_list) {
+					r.is_detail = false
 					this.rl.set(Number(r.room_id), r)
 				}
 			}
@@ -185,8 +197,8 @@ export class Villa {
 	}
 
 	/** 获取身份组 */
-	async getRole(role_id: number, detail: boolean = true) {
-		if (this.roles.has(role_id)) {
+	async getRole(role_id: number, detail: boolean = true, force: boolean = false) {
+		if (this.roles.has(role_id) && !force) {
 			const role = this.roles.get(role_id)
 			if (role && (role.is_detail || !detail)) return role
 		}
@@ -232,6 +244,12 @@ export type RoomType = "BOT_PLATFORM_ROOM_TYPE_CHAT_ROOM"	        //聊天房间
 	| "BOT_PLATFORM_ROOM_TYPE_TALKING_ROOM"                         //语音房间
 	| "BOT_PLATFORM_ROOM_TYPE_INVALID"	                            //无效
 
+export type URoomType = "RoomTypeChatRoom"
+	| "RoomTypePostRoom"
+	| "RoomTypeSceneRoom"
+	| "RoomTypeLiveRoom"
+	| "RoomTypeTalkingRoom"
+
 export type NoticeType = "BOT_PLATFORM_DEFAULT_NOTIFY_TYPE_NOTIFY"	//默认通知
 	| "BOT_PLATFORM_DEFAULT_NOTIFY_TYPE_IGNORE"	                    //默认免打扰
 	| "BOT_PLATFORM_DEFAULT_NOTIFY_TYPE_INVALID"	                //无效
@@ -242,11 +260,15 @@ export interface RoomInfo {
 	//房间名称
 	room_name: string
 	//房间类型
-	room_type: RoomType
+	room_type: RoomType | URoomType
 	//分组 id
-	group_id: number
+	group_id?: number
+	group_info?: {
+		group_id: number
+		group_name: string
+	}
 	//房间默认通知类型
-	room_default_notify_type: NoticeType
+	room_default_notify_type?: NoticeType
 	//房间消息发送权限范围设置
 	send_msg_auth_range: {
 		//是否全局可发送
@@ -254,6 +276,7 @@ export interface RoomInfo {
 		//可发消息的身份组 id
 		roles: Array<number>
 	}
+	is_detail: boolean
 }
 
 export interface VillaInfo {

@@ -56,13 +56,23 @@ export interface MemberRole {
 	/** 指定的房间列表 */
 	room_ids: number[]
 	/** 身分组人数 */
-	member_num: number
+	member_num?: number
 	/** 身分组权限 */
-	permissions: []
+	permissions?: []
 	web_color: string
 	font_color: string
 	bg_color: string
 	priority: number
 	/** 是否详细 */
 	is_detail: boolean
+}
+
+export interface UMemberInfo {
+	avatar: string
+	gender: number
+	introduce: string
+	nickname: string
+	uid: number
+	roles: MemberRole[]
+	tags: { tag_id: number, tag_name: string }[]
 }

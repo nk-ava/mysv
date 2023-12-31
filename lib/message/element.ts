@@ -4,9 +4,10 @@ import {
 	RobotCardMsg, SMsg, TextMsg, UserMsg, VillaCardMsg
 } from "./message";
 import {Bot} from "../bot";
-import {RoomType, Villa} from "../villa";
+import {RoomInfo, RoomType, URoomType, Villa} from "../villa";
 import * as fs from "fs";
 import {UClient} from "../uClient";
+import {uVilla} from "../core/uVilla";
 
 export interface Text {
 	type: 'text'
@@ -285,7 +286,7 @@ export class Msg {
 				m.id = String(m.id)
 				if (!m.nickname) {
 					if (this.c instanceof Bot) m.nickname = (await (await Villa.get(this.c, this.villa_id))?.getMemberInfo(Number(m.id)))?.basic?.nickname || '你猜我at的谁'
-					else m.nickname = '你猜我at的谁'
+					else m.nickname = (await uVilla.get(this.c, this.villa_id)?.getMember(Number(m.id)))?.nickname || '你猜我at的谁'
 				}
 				this.t += `@${m.nickname} `
 				this.brief += `@${m.nickname} `
@@ -389,12 +390,13 @@ export class Msg {
 	private async rlink(m: LinkRoom) {
 		if (!m.vid || !m.rid) return
 		if (!m.name || !m.rtp) {
-			if (this.c instanceof Bot) {
-				const room = await (await Villa.get(this.c, Number(m.vid)))?.getRoom(Number(m.rid))
-				!m.name && (m.name = room?.room_name || '这个房间')
-				!m.rtp && (m.rtp = convertRoomType(room?.room_type))
-			} else m.name = "这个房间"
+			let room: RoomInfo | undefined
+			if (this.c instanceof Bot) room = await (await Villa.get(this.c, Number(m.vid)))?.getRoom(Number(m.rid))
+			else room = await uVilla.get(this.c, Number(m.vid))?.getRoom(Number(m.rid))
+			!m.name && (m.name = room?.room_name || '这个房间')
+			!m.rtp && (m.rtp = convertRoomType(room?.room_type))
 		}
+		if (!m.name) m.name = "这个房间"
 		this.t += `#${m.name} `
 		this.brief += `[#${m.name}](${m.vid}-${m.rid})`
 		if (m.style) this.style(m, m.name?.length + 2)
@@ -423,7 +425,10 @@ export class Msg {
 	private async user(m: User) {
 		m.id = String(m.id)
 		if (!m.id) return
-		!m.nickname && (m.nickname = this.c instanceof UClient ? "unknown" : ((await (await Villa.get(this.c, this.villa_id))?.getMemberInfo(Number(m.id)))?.basic?.nickname || "unknown"))
+		if (!m.nickname) {
+			if (this.c instanceof Bot) m.nickname = (await (await Villa.get(this.c, this.villa_id))?.getMemberInfo(Number(m.id)))?.basic?.nickname || "unknown"
+			else m.nickname = (await uVilla.get(this.c, this.villa_id)?.getMember(Number(m.id)))?.nickname || "unknown"
+		}
 		this.entities.push({
 			entity: {
 				type: 'user',
@@ -497,7 +502,7 @@ export class Msg {
 	private async plink(m: PreviewLink) {
 		if (this.preview) return
 		if (!m.icon || !m.source) {
-			const vinfo = this.c instanceof Bot && (await Villa.getInfo(this.c, this.villa_id)) || undefined
+			const vinfo = this.c instanceof Bot ? await Villa.getInfo(this.c, this.villa_id) : uVilla.get(this.c, this.villa_id)?.info
 			!m.icon && (m.icon = (vinfo?.villa_avatar_url || 'https://i.gtimg.cn/open/app_icon/09/28/85/17/1109288517_100_ios.png'))
 			!m.source && (m.source = (vinfo?.name || '米游社'))
 		}
@@ -750,7 +755,9 @@ export const segment = {
 	}
 }
 
-function convertRoomType(type: RoomType | undefined): rlinkType {
+function convertRoomType(type: RoomType | URoomType | undefined): rlinkType {
 	if (!type) return "chat"
-	return (type.split("_")?.[4]?.toLowerCase() || "chat") as rlinkType
+	let rtp = type.split("_")?.[4]?.toLowerCase()
+	if (!rtp) rtp = type.replace(/(Room)|(Type)/g, "")?.toLowerCase()
+	return (rtp || "chat") as rlinkType
 }

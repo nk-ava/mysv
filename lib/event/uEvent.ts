@@ -1,5 +1,6 @@
 import {Elem, Quotable} from "../message";
 import {UserInfo} from "./cbEvents";
+import {uVilla} from "../core/uVilla";
 
 export interface Message {
 	/** 消息发送者，可以是机器人或其他用户 */
@@ -32,7 +33,7 @@ export interface Message {
 	quote?: Quotable
 
 	isPrivate: boolean
-
+	villa?: uVilla
 	atme?: boolean
 
 	reply?: (content: Elem | Elem[], quote?: boolean) => Promise<{ msgId: string }>
