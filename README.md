@@ -143,6 +143,7 @@ process.on("uncaughtException", error => {
 |online|登入成功|
 |message.private|接收私聊消息事件|
 |message.villa|接收别野消息事件|
+|notice|通知事件|
 |login.geetest|登入收到gt验证|
 
 ##### 其它

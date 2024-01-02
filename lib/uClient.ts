@@ -149,13 +149,14 @@ export class UClient extends EventEmitter {
 		this.keepAlive = s
 	}
 
-	/** 初始化加入的别野 */
-	private async initVl() {
+	/** 刷新加入的别野 */
+	async refreshVillaList() {
 		const {data} = await axios.get("https://bbs-api.miyoushe.com/vila/wapi/home/list", {
 			headers: getDbyHeaders.call(this)
 		})
 		if (data.retcode !== 0) throw new UClientRunTimeError(data.retcode, `获取大别野信息失败, reason: ${data.message}`)
 		const list = data.data.villa_home_list
+		this.vl.clear()
 		for (let villa_home of list) {
 			const villa = villa_home.villa_info
 			villa.villa_id = Number(villa.villa_id)
@@ -184,7 +185,7 @@ export class UClient extends EventEmitter {
 
 	private async newUClient() {
 		try {
-			await this.initVl()
+			await this.refreshVillaList()
 			this[NET] = await Network.new(this, this.uid, this.device.config)
 			this[NET].on("close", async (code, reason) => {
 				this.clear()
@@ -269,6 +270,31 @@ export class UClient extends EventEmitter {
 		if (id) this.logger.info(`succeed to send: [Villa: ${villa.info?.name || "unknown"}(${villa_id})] ${brief}`)
 		return {
 			msgId: id
+		}
+	}
+
+	/** 退出大别野 */
+	async exitVilla(villa_id: number) {
+		await this.fetchHttp("https://bbs-api.miyoushe.com/vila/wapi/villa/member/exit", "post", {
+			villa_id: String(villa_id)
+		})
+		const villa = this.vl.get(Number(villa_id))
+		this.vl.delete(Number(villa_id))
+		this.logger.mark(`已退出大别野 ${villa?.name || "unknown"}(${villa_id})`)
+	}
+
+	/** 加入大别野 */
+	async joinVilla(villa_id: number, reason: string = "") {
+		const {villa_full_info} = await this.fetchHttp(`https://bbs-api.miyoushe.com/vila/wapi/villa/v2/getVillaFull?villa_id=${villa_id}`, "get")
+		await this.fetchHttp("https://bbs-api.miyoushe.com/vila/wapi/villa/join/apply", "post", {
+			villa_id: String(villa_id),
+			reason: reason
+		})
+		this.logger.mark(`提交加入别野 (${villa_id}) 申请成功`)
+		if (villa_full_info.join_type === "JoinTypeAllowAny") {
+			await this.refreshVillaList()
+			const villa = this.vl.get(Number(villa_id))
+			this.logger.mark(`新加入别野 ${villa?.name || "unknown"}(${villa_id})`)
 		}
 	}
 
@@ -545,10 +571,10 @@ export class UClient extends EventEmitter {
 		const time = buf.readUint32BE()
 		const cmdL = buf.readUint16BE(4)
 		const cmd = buf.slice(6, 6 + cmdL).toString()
-		const uL = buf.readUint16BE(6 + cmdL)
-		const from_uid = buf.slice(8 + cmdL, 8 + cmdL + uL).toString()
-		const seq = buf.slice(8 + cmdL + uL, 10 + cmdL + uL)
-		let body: any = buf.slice(10 + cmdL + uL)
+		const oL = buf.readUint16BE(6 + cmdL)
+		const o = buf.slice(8 + cmdL, 8 + cmdL + oL).toString()
+		const seq = buf.slice(8 + cmdL + oL, 10 + cmdL + oL)
+		let body: any = buf.slice(10 + cmdL + oL)
 		switch (cmd) {
 			case "s_cmd":
 				body = pb.decode(body)
@@ -559,7 +585,7 @@ export class UClient extends EventEmitter {
 						payload = payload[1]
 						!Array.isArray(payload) && (payload = [payload])
 						for (let pkt of payload) {
-							const msg = new Parser(this).doPtParse(pkt)
+							const msg = await new Parser(this).doPtParse(pkt)
 							if (!msg) continue
 							this.logger.info(`recv from: [Villa: ${msg?.source?.villa_name || "unknown"}(${msg?.source?.villa_id}), Member: ${msg?.nickname}(${msg?.from_uid})] ${msg?.msg}`)
 							this.em('message.villa', msg)
@@ -581,7 +607,7 @@ export class UClient extends EventEmitter {
 						1: "string"
 					}, 19: "string"
 				})
-				const msg = new Parser(this).doPtParse(body)
+				const msg = await new Parser(this).doPtParse(body)
 				this.sig.timestamp_pullMsg = Math.max(msg?.send_time || 0, this.sig.timestamp_pullMsg)
 				this[NET].send(Buffer.concat([Buffer.from([0x40]), seq]))
 				if (!msg) return
@@ -595,7 +621,7 @@ export class UClient extends EventEmitter {
 				payload = payload[1]
 				if (!Array.isArray(payload)) payload = [payload]
 				for (let pkt of payload) {
-					const msg = new Parser(this).doPtParse(pkt)
+					const msg = await new Parser(this).doPtParse(pkt)
 					if (!msg) continue
 					this.logger.info(`recv from: [Private: ${msg?.nickname || "unknown"}(${msg?.from_uid})发来一条私信] ${msg?.msg}`)
 					this.em('message.private', msg)

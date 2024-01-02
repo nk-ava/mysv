@@ -178,10 +178,13 @@ export default class Parser {
 		return rs
 	}
 
-	doPtParse(proto: any, retain = false): Message | undefined {
+	async doPtParse(proto: any, retain = false): Promise<Message | undefined> {
 		const obj_name = proto[4]
 		if (!obj_name.startsWith("MHY")) return
-		if (/^MHY:((SYS)|(SIG)):.*$/.test(obj_name)) return
+		if (/^MHY:((SYS)|(SIG)):.*$/.test(obj_name)) {
+			await this.dealMHY(proto, obj_name)
+			return
+		}
 		const content = JSON.parse(proto[5])
 		if (!retain && Number(content?.user?.id) === (this.c as UClient).uid && (this.c as UClient).config.ignore_self) return
 		let src = proto[13]
@@ -265,6 +268,45 @@ export default class Parser {
 				return "[自定义表情]"
 			case "MHY:VillaEmoticon":
 				return "[别野专属表情]"
+		}
+	}
+
+	private async dealMHY(proto: any, type: string) {
+		const content = JSON.parse(proto[5])
+		switch (type) {
+			case "MHY:SIG:BannedFromVilla":
+				this.c.em("notice.bannedFrom", {
+					...content.content,
+					sub_type: "bannedFrom",
+					villa_id: Number(content.content.villa_id)
+				})
+				if (content.content.operation === "kicked") {
+					this.c.logger.mark(`你已被移出别野 ${content.content.villa_id}`)
+					this.c.vl.delete(Number(content.content.villa_id))
+				}
+				break
+			case "MHY:SIG:VillaJoinApplyResult":
+				this.c.em("notice.joinResult", {
+					...content.content,
+					sub_type: "joinResult",
+					villa_id: Number(content.content.villa_id)
+				})
+				if (content.content.operation === "pass") {
+					await (this.c as UClient).refreshVillaList()
+					const villa = this.c.vl.get(Number(content.content.villa_id))
+					this.c.logger.mark(`新加入别野 ${villa?.name || "unknown"}(${content.content.villa_id})`)
+				}
+				break
+			case "MHY:SYS:UserJoinVilla":
+				const user = (content.user.extra = JSON.parse(content.user.extra), content.user)
+				this.c.em("notice.userJoin", {
+					...user,
+					sub_type: "userJoin",
+					id: Number(user.id)
+				})
+				const villa = this.c.vl.get(Number(proto[3]))
+				this.c.logger.mark(`用户 ${user.name}(${user.id}) 加入别野 ${villa?.name || "unknown"}(${proto[3]})`)
+				break
 		}
 	}
 
