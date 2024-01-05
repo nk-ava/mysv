@@ -214,7 +214,7 @@ export class UClient extends EventEmitter {
 		} catch (err) {
 			if ((err as Error).message.includes("not login")) {
 				this.logger.error("mys_ck已失效，请重新删除cookie后重新登入")
-				fs.unlinkSync(`${this.config.data_dir}/cookie`)
+				fs.unlink(`${this.config.data_dir}/cookie`, () => {})
 				return
 			}
 			if ((err as Error).message.includes("账号不一致") || (err as Error).message.includes("获取大别野信息失败")) {
