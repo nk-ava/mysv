@@ -32,8 +32,23 @@ export class RobotRunTimeError {
 	}
 }
 
+export interface Logger {
+	trace(msg: any, ...args: any[]): any
+
+	debug(msg: any, ...args: any[]): any
+
+	info(msg: any, ...args: any[]): any
+
+	warn(msg: any, ...args: any[]): any
+
+	error(msg: any, ...args: any[]): any
+
+	fatal(msg: any, ...args: any[]): any
+
+	mark(msg: any, ...args: any[]): any
+}
+
 export interface Bot {
-	logger: log4js.Logger
 	config: Config
 	mhyHost: string
 
@@ -117,6 +132,7 @@ export class Bot extends EventEmitter {
 		call_api_cnt: 0
 	}
 
+	logger: Logger | log4js.Logger
 	readonly vl = new Map<number, VillaInfo>()
 	private client: HttpClient | WsClient | undefined;
 	private keepAlive: boolean
@@ -140,8 +156,8 @@ export class Bot extends EventEmitter {
 		this.pubKey = crypto.createPublicKey(props.pub_key)
 		if (!this.config.ws) this.jwkKey = this.pubKey.export({format: "jwk"})
 		this.enSecret = this.encryptSecret()
-		this.logger = log4js.getLogger(`[BOT_ID:${this.config.bot_id}]`)
-		this.logger.level = this.config.log_level as LogLevel
+		this.logger = log4js.getLogger(`[BOT_ID:${this.config.bot_id}]`);
+		(this.logger as log4js.Logger).level = this.config.log_level as LogLevel
 		this.keepAlive = true
 		this.printPkgInfo()
 		if (this.config.mys_ck === "") getMysCk.call(this, (ck: string) => {

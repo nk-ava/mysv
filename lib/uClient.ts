@@ -10,6 +10,7 @@ import axios from "axios";
 import {Readable} from "node:stream";
 import {Elem, Forward, Msg, Quotable, QuoteInfo} from "./message";
 import {uVilla, uVillaInfo} from "./core/uVilla";
+import {Logger} from "./bot";
 
 const pkg = require("../package.json")
 
@@ -84,7 +85,7 @@ export class UClient extends EventEmitter {
 	private [HEARTBEAT]!: NodeJS.Timeout | number
 	private readonly trace: any
 	private [INTERVAL_PULL_UG_MSG]!: NodeJS.Timeout
-	readonly logger: log4js.Logger
+	logger: Logger | log4js.Logger
 	readonly uid: number
 	readonly config: UClientConfig
 	readonly device: Device
@@ -118,8 +119,8 @@ export class UClient extends EventEmitter {
 		}
 		this.keepAlive = true
 		this[HANDLER] = new Map
-		this.logger = log4js.getLogger(`[${this.uid}]`)
-		this.logger.level = this.config.log_level as LogLevel
+		this.logger = log4js.getLogger(`[${this.uid}]`);
+		(this.logger as log4js.Logger).level = this.config.log_level as LogLevel
 		this.printPkgInfo()
 		getMysCk.call(this, (ck: string | boolean) => {
 			if (!ck) throw new UClientRunTimeError(-3, "cookie获取失败")
