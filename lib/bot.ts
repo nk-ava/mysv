@@ -1,4 +1,4 @@
-import * as log4js from "log4js";
+import log4js from "log4js";
 import crypto from "crypto";
 import axios from "axios";
 import {Encode, getMysCk, lock, md5Stream, TMP_PATH, uploadImageWithCk} from "./common"
@@ -156,8 +156,7 @@ export class Bot extends EventEmitter {
 		this.pubKey = crypto.createPublicKey(props.pub_key)
 		if (!this.config.ws) this.jwkKey = this.pubKey.export({format: "jwk"})
 		this.enSecret = this.encryptSecret()
-		this.logger = log4js.getLogger(`[BOT_ID:${this.config.bot_id}]`);
-		(this.logger as log4js.Logger).level = this.config.log_level as LogLevel
+		this.logger = this.getLog()
 		this.keepAlive = true
 		this.printPkgInfo()
 		if (this.config.mys_ck === "") getMysCk.call(this, (ck: string) => {
@@ -570,6 +569,27 @@ export class Bot extends EventEmitter {
 		})).data
 		if (!result.data) throw new RobotRunTimeError(result.retcode, ` 上传图片失败，reason：${result.message}`)
 		return result.data.url
+	}
+
+	private getLog() {
+		log4js.configure({
+			appenders: {
+				console: {
+					type: "console",
+					layout: {
+						type: "pattern",
+						pattern: `%[[%d{yyyy-MM-ddThh:mm:ss.SSS}][%p][BOT_ID:${this.config.bot_id}]%] %m`
+					}
+				}
+			},
+			categories: {
+				default: {
+					appenders: ["console"],
+					level: "info"
+				}
+			}
+		})
+		return log4js.getLogger("default")
 	}
 
 	em(name: string, ...data: any) {

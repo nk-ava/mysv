@@ -119,8 +119,7 @@ export class UClient extends EventEmitter {
 		}
 		this.keepAlive = true
 		this[HANDLER] = new Map
-		this.logger = log4js.getLogger(`[${this.uid}]`);
-		(this.logger as log4js.Logger).level = this.config.log_level as LogLevel
+		this.logger = this.getLog()
 		this.printPkgInfo()
 		getMysCk.call(this, (ck: string | boolean) => {
 			if (!ck) throw new UClientRunTimeError(-3, "cookie获取失败")
@@ -724,6 +723,27 @@ export class UClient extends EventEmitter {
 		})
 		if (data.retcode !== 0) throw new UClientRunTimeError(data.retcode, `${url}请求失败，reason：${data.message || "unknown"}`)
 		return data.data
+	}
+
+	private getLog() {
+		log4js.configure({
+			appenders: {
+				console: {
+					type: "console",
+					layout: {
+						type: "pattern",
+						pattern: `%[[%d{yyyy-MM-ddThh:mm:ss.SSS}][%p][${this.uid}]%] %m`
+					}
+				}
+			},
+			categories: {
+				default: {
+					appenders: ["console"],
+					level: "info"
+				}
+			}
+		})
+		return log4js.getLogger("default")
 	}
 }
 
